@@ -1,5 +1,7 @@
 # clv
 
+![clv rendering a Claude Code PR review in the browser](docs/screenshot.png)
+
 `clv` turns Markdown that Claude Code writes into a rich, live preview you can read in any browser. Claude embeds small JSON blocks (`` ```clv:<type> ``) in its review or explanation output; `clv` parses them, validates each against a schema, and renders them as callouts, annotated code, diffs, charts, dependency graphs, step-by-step walkthroughs, and more.
 
 - **Live preview** — `clv review.md` opens the document in your browser and live-reloads it on every save, preserving scroll position.
