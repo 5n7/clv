@@ -206,8 +206,8 @@ export function App({
 							className="pill"
 							title={serveMode ? "served live by clv; auto-reloads on change" : "rendered from inline JSON"}
 						>
-							<Icon name="dot" size={9} />
-							&nbsp;{serveMode ? "live" : "self-contained"}
+							<span className="dot" />
+							{serveMode ? "live" : "self-contained"}
 						</span>
 						<button className="tbtn" onClick={() => navigator.clipboard?.writeText(window.location.href)}>
 							<Icon name="copy" size={13} /> copy link
