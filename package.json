@@ -15,6 +15,7 @@
 		"fmt": "dprint fmt",
 		"fmt:check": "dprint check",
 		"lint": "oxlint",
+		"prepare": "test -f dist/cli.js || bun run build",
 		"prepublishOnly": "bun run build",
 		"test": "bun test",
 		"typecheck": "tsc -p tsconfig.json --noEmit && tsc -p src/web/tsconfig.json --noEmit"
