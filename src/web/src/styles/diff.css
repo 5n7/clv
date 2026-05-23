@@ -1,0 +1,87 @@
+/* ---------- @git-diff-view/react theming override ----------
+   The lib themes itself through `--diff-*` custom properties scoped under
+   `.diff-tailwindcss-wrapper[data-theme="light|dark"] .diff-style-root` and sets
+   `data-theme` from the `diffViewTheme` prop. We retarget those variables to the
+   design tokens so added/removed rows use --ok-bg/--bad-bg and the surface uses
+   --bg-card, approximating the prototype `.diff` look. We also fix the monospace
+   font and remove the lib's default rounded card chrome (BlockFrame owns that). */
+
+@import "@git-diff-view/react/styles/diff-view.css";
+
+/* surface + colors, light */
+.diff-tailwindcss-wrapper[data-theme="light"] .diff-style-root,
+.diff-tailwindcss-wrapper[data-theme="dark"] .diff-style-root {
+	--diff-border--: var(--line-soft);
+	--diff-add-content--: color-mix(in oklab, var(--ok-bg) 50%, var(--bg-card));
+	--diff-del-content--: color-mix(in oklab, var(--bad-bg) 50%, var(--bg-card));
+	--diff-add-lineNumber--: color-mix(
+		in oklab,
+		var(--ok-bg) 70%,
+		var(--bg-card)
+	);
+	--diff-del-lineNumber--: color-mix(
+		in oklab,
+		var(--bad-bg) 70%,
+		var(--bg-card)
+	);
+	--diff-add-content-highlight--: color-mix(
+		in oklab,
+		var(--ok-bg) 80%,
+		var(--bg-card)
+	);
+	--diff-del-content-highlight--: color-mix(
+		in oklab,
+		var(--bad-bg) 80%,
+		var(--bg-card)
+	);
+	--diff-plain-content--: var(--bg-card);
+	--diff-plain-lineNumber--: var(--bg-card);
+	--diff-plain-lineNumber-color--: var(--ink-4);
+	--diff-expand-content--: var(--bg-elev);
+	--diff-expand-lineNumber--: var(--bg-elev);
+	--diff-expand-lineNumber-color--: var(--ink-4);
+	--diff-empty-content--: var(--bg-sunk);
+	--diff-hunk-content--: var(--bg-sunk);
+	--diff-hunk-lineNumber--: var(--bg-sunk);
+	--diff-hunk-content-color--: var(--ink-3);
+	color: var(--ink);
+}
+
+/* monospace + size to match the prototype diff rows */
+.diff .diff-tailwindcss-wrapper,
+.diff .diff-tailwindcss-wrapper .diff-line-content,
+.diff .diff-tailwindcss-wrapper .diff-line-num {
+	font-family: var(--mono);
+	font-size: 12.5px;
+	line-height: 1.55;
+}
+
+/* BlockFrame supplies the card border/background; drop the lib's own border */
+.diff .diff-style-root {
+	border: none;
+}
+
+/* ---------- split / unified segmented control (in BlockFrame head) ---------- */
+.diff-segs {
+	display: flex;
+	gap: 6px;
+}
+.diff-segs .seg {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 24px;
+	padding: 0 10px;
+	border-radius: 999px;
+	border: 1px solid var(--line);
+	background: var(--bg-card);
+	font: inherit;
+	font-size: 11.5px;
+	cursor: pointer;
+	color: var(--ink-2);
+}
+.diff-segs .seg.active {
+	background: var(--ink);
+	color: var(--bg);
+	border-color: var(--ink);
+}
