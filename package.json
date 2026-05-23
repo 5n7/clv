@@ -1,11 +1,14 @@
 {
-	"name": "clv-cli",
+	"name": "@5n7/clv",
 	"version": "0.1.0",
 	"type": "module",
 	"bin": {
-		"clv": "./dist/cli.js"
+		"clv": "dist/cli.js"
 	},
 	"files": ["dist"],
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
 		"build": "bun run build:web && bun run build:cli",
 		"build:cli": "bun build src/cli/index.ts --target=bun --outfile=dist/cli.js --minify",

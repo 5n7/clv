@@ -10,29 +10,29 @@
 
 ## Usage
 
-The npm package is published as `clv-cli`, but the command it installs is `clv`. Run it ad hoc with `bunx`, or install it globally for repeated use:
+The npm package is published as `@5n7/clv`, but the command it installs is `clv`. Run it ad hoc with `bunx`, or install it globally for repeated use:
 
 ```bash
 # One-off, no install:
-bunx clv-cli review.md
+bunx @5n7/clv review.md
 
 # Or install globally; the command is then `clv`:
-bun add -g clv-cli
+bun add -g @5n7/clv
 clv review.md
 ```
 
-The examples below use `bunx clv-cli`; if you have installed globally, drop the `bunx` and call `clv` directly.
+The examples below use `bunx @5n7/clv`; if you have installed globally, drop the `bunx` and call `clv` directly.
 
 ```bash
 # Open a file in your browser with live reload
-bunx clv-cli review.md
+bunx @5n7/clv review.md
 
 # Open every Markdown file in a directory (recurse with -R)
-bunx clv-cli docs/
-bunx clv-cli -R docs/
+bunx @5n7/clv docs/
+bunx @5n7/clv -R docs/
 
 # Add more files to the already-running session
-bunx clv-cli notes.md design.md
+bunx @5n7/clv notes.md design.md
 
 # Local development against this repo
 bun run src/cli/index.ts review.md
@@ -46,10 +46,10 @@ The server runs as a detached daemon and outlives the command that launched it. 
 
 ```bash
 # Inspect the running daemon (port, pid, file count)
-bunx clv-cli status
+bunx @5n7/clv status
 
 # Stop the daemon
-bunx clv-cli shutdown
+bunx @5n7/clv shutdown
 ```
 
 Run `clv doc` to print the full showcase document (all 14 block types) to stdout, or `clv doc <block>` (e.g. `clv doc callout`) to print a single block's schema and a worked example — handy for learning the block format or piping into a file. A file literally named `doc` is shadowed by the subcommand; use `./doc` or `clv doc.md` to preview such a file.
@@ -60,17 +60,17 @@ To produce a single self-contained HTML file instead of starting a server, pass 
 
 ```bash
 # Write one self-contained HTML file (no server, no browser)
-bunx clv-cli review.md --output review.html
+bunx @5n7/clv review.md --output review.html
 
 # Pipe Claude Code's output straight in
-claude -p "review this PR" | bunx clv-cli --output review.html
+claude -p "review this PR" | bunx @5n7/clv --output review.html
 ```
 
 A piped document with no `--output` is rendered to a temporary file and opened directly, so the bare pipe still works as a one-shot view:
 
 ```bash
 # View a piped document once, without a server
-claude -p "review this PR" | bunx clv-cli
+claude -p "review this PR" | bunx @5n7/clv
 ```
 
 ### CLI options
