@@ -6,7 +6,7 @@ import { App } from "../App";
 import { AssetBaseContext } from "../lib/assetUrl";
 import { clearFileId, getFileId, navigate, onRouteChange, replaceFileId, urlSyncOnFilesChanged } from "./router";
 import { Sidebar } from "./Sidebar";
-import { createWsClient, type WsStatus } from "./wsClient";
+import { closeFiles, createWsClient, type WsStatus } from "./wsClient";
 
 // Serve-mode root. Owns the file registry, the active file id (URL-driven via the
 // router), and the active Document. Live updates arrive over the
@@ -143,7 +143,18 @@ export function ServerApp({ config: { apiBase } }: { config: { apiBase: string }
 			</div>
 		);
 
-	const sidebar = <Sidebar files={files} currentId={currentId} onSelect={(id) => navigate(id)} />;
+	// Close files (remove from the session). Fire-and-forget: the resulting
+	// `files-changed` broadcast (handled above) replaces the file list AND clears a
+	// dead `?file=` when the ACTIVE file was the one closed, so we deliberately do
+	// not mutate local state here — same path as a watcher unlink.
+	const sidebar = (
+		<Sidebar
+			files={files}
+			currentId={currentId}
+			onSelect={(id) => navigate(id)}
+			onClose={(ids) => void closeFiles(apiBase, ids)}
+		/>
+	);
 
 	// Stand-in so `App` has a Document to render the shell/sidebar with when its
 	// stream is replaced by `emptyMain`. `doc` is the last-known document; the

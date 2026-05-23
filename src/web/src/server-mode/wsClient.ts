@@ -12,6 +12,23 @@ const MAX_BACKOFF = 5000; // 5s
 export type WsStatus = "connecting" | "open" | "closed";
 export type WsClient = { close(): void };
 
+// Close (remove-from-session) files by id. Fire-and-forget: the server's
+// `files-changed` WS broadcast updates the sidebar via the existing subscription,
+// so we deliberately do NOT read the response or optimistically mutate local
+// state (matching how `add` already works). A failed fetch is logged, never
+// thrown, so a transient error can't crash the SPA.
+export async function closeFiles(apiBase: string, ids: string[]): Promise<void> {
+	try {
+		await fetch(`${apiBase}/files/close`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ ids }),
+		});
+	} catch (err) {
+		console.error("clv: failed to close files", err);
+	}
+}
+
 export function createWsClient(onMessage: (m: WsServerMessage) => void, onStatus?: (s: WsStatus) => void): WsClient {
 	let ws: WebSocket | null = null;
 	let backoff = MIN_BACKOFF;

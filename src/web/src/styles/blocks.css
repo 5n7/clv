@@ -308,6 +308,61 @@
 	background: var(--accent-2);
 	color: var(--accent-ink);
 }
+/* Row wrapper: the select button (flex:1, ellipsizing) and the close × (flex:none)
+   are SIBLINGS so both are real, keyboard-activatable <button>s with no nesting.
+   The wrapper carries ONLY the per-depth indent (depth * 12); the row button keeps
+   its own left padding so that inset stays INSIDE the highlight — otherwise the
+   active/hover background hugs the file icon with no left breathing room.
+   align-items:center keeps the × vertically centered against the row. */
+.clv-file-row-wrap {
+	display: flex;
+	align-items: center;
+}
+.clv-file-row-wrap .clv-file-row {
+	flex: 1;
+	min-width: 0;
+}
+/* Per-file / per-group close (×) buttons. Hidden by default so they don't clutter
+   the list; revealed on row/header-wrapper hover and on keyboard focus
+   (focus-visible) for a11y. flex:none keeps the × at the right edge without ever
+   pushing or clipping the name (the name spans flex:1 and ellipsizes). */
+.clv-file-close,
+.clv-section-close {
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	margin-left: 2px;
+	padding: 0;
+	border: none;
+	border-radius: 5px;
+	background: transparent;
+	color: var(--ink-4);
+	font: inherit;
+	font-size: 14px;
+	line-height: 1;
+	cursor: pointer;
+	/* Hidden until the wrapper is hovered or the × itself is focused. */
+	opacity: 0;
+}
+.clv-file-row-wrap:hover .clv-file-close,
+.clv-section-head-wrap:hover .clv-section-close,
+.clv-file-close:focus-visible,
+.clv-section-close:focus-visible {
+	opacity: 1;
+}
+.clv-file-close:hover,
+.clv-section-close:hover {
+	background: var(--bg-sunk);
+	color: var(--ink);
+}
+/* On the active file row the muted --ink-4 reads poorly against the accent fill,
+   so match the row's accent ink for the revealed-but-not-yet-hovered state. */
+.clv-file-row-wrap:has(.clv-file-row.active) .clv-file-close {
+	color: var(--accent-ink);
+}
 .clv-dir-row {
 	color: var(--ink-3);
 }
@@ -357,11 +412,18 @@
 	border-radius: 0 3px 3px 0;
 	background: var(--accent);
 }
+/* Header wrapper: the collapse toggle (flex:1) and the close × (flex:none) are
+   SIBLINGS so both are real, keyboard-activatable <button>s with no nesting. */
+.clv-section-head-wrap {
+	display: flex;
+	align-items: center;
+}
 .clv-section-head {
 	display: flex;
 	align-items: center;
 	gap: 7px;
-	width: 100%;
+	flex: 1;
+	min-width: 0;
 	border: none;
 	background: transparent;
 	padding: 5px 8px 5px 6px;

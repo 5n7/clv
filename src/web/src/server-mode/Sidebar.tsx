@@ -21,6 +21,10 @@ export type SidebarProps = {
 	files: FileEntry[];
 	currentId: string | undefined;
 	onSelect: (id: string) => void;
+	// Close (remove-from-session) the given file ids. A single id for a per-file
+	// close, a group's full id set for a per-group close. The actual API call +
+	// list refresh live in ServerApp (via the files-changed broadcast).
+	onClose: (ids: string[]) => void;
 };
 
 // Safe localStorage read with a fallback (handles disabled/throwing storage).
@@ -39,7 +43,7 @@ function writeLs(key: string, value: string): void {
 	}
 }
 
-export function Sidebar({ files, currentId, onSelect }: SidebarProps) {
+export function Sidebar({ files, currentId, onSelect, onClose }: SidebarProps) {
 	const [query, setQuery] = useState(""); // search is intentionally not persisted
 	const [view, setView] = useState<ViewMode>(() => (readLs(LS_VIEW) === "tree" ? "tree" : "flat"));
 	const [nameMode, setNameMode] = useState<DisplayMode>(() => (readLs(LS_NAME_MODE) === "title" ? "title" : "name"));
@@ -67,9 +71,15 @@ export function Sidebar({ files, currentId, onSelect }: SidebarProps) {
 	// Reused for the flat sidebar AND for each group section's body.
 	const renderList = (entries: FileEntry[]): ReactNode =>
 		view === "flat" ? (
-			<FlatList files={entries} currentId={currentId} nameMode={nameMode} onSelect={onSelect} />
+			<FlatList files={entries} currentId={currentId} nameMode={nameMode} onSelect={onSelect} onClose={onClose} />
 		) : (
-			<TreeList nodes={buildFileTree(entries)} currentId={currentId} nameMode={nameMode} onSelect={onSelect} />
+			<TreeList
+				nodes={buildFileTree(entries)}
+				currentId={currentId}
+				nameMode={nameMode}
+				onSelect={onSelect}
+				onClose={onClose}
+			/>
 		);
 
 	// BACKWARD-COMPAT: when there are NO named groups (every file is "default" —
@@ -101,6 +111,11 @@ export function Sidebar({ files, currentId, onSelect }: SidebarProps) {
 							noMatch={hasQuery && matched.length === 0}
 							hasQuery={hasQuery}
 							renderList={renderList}
+							onClose={onClose}
+							// Close the WHOLE group: every file id in it, computed on the full
+							// group (not the search-filtered subset) so a group close under an
+							// active search still removes the hidden files too.
+							closeIds={s.files.map((f) => f.id)}
 						/>
 					);
 				})}
@@ -182,6 +197,10 @@ type GroupSectionProps = {
 	// Whether a search query is active — used for the empty-state copy.
 	hasQuery: boolean;
 	renderList: (entries: FileEntry[]) => ReactNode;
+	onClose: (ids: string[]) => void;
+	// Every file id in this group (full set, search-independent) — closed together
+	// by the group close button.
+	closeIds: string[];
 };
 
 // One collapsible group section (Option A): chevron · mono group name · count
@@ -190,23 +209,48 @@ type GroupSectionProps = {
 // gets an accent treatment. No per-file LIVE pill / group live dot: FileEntry has
 // no `live` field, so the mockup's liveness affordances are intentionally omitted
 // rather than inventing data. Open/closed state defaults to open and is local.
-function GroupSection({ group, files, count, active, noMatch, hasQuery, renderList }: GroupSectionProps) {
+function GroupSection({
+	group,
+	files,
+	count,
+	active,
+	noMatch,
+	hasQuery,
+	renderList,
+	onClose,
+	closeIds,
+}: GroupSectionProps) {
 	const [open, setOpen] = useState(true);
 	const emptyMessage = hasQuery ? "no matches in this group" : "no files";
 	return (
 		<div className={"clv-section" + (active ? " active" : "") + (noMatch ? " no-match" : "")}>
-			<button
-				className={"clv-section-head" + (open ? " open" : "")}
-				onClick={() => setOpen((o) => !o)}
-				aria-expanded={open}
-				title={group}
-			>
-				<span className="clv-section-chev">
-					<Icon name={open ? "chevDown" : "chevRight"} size={11} />
-				</span>
-				<span className="clv-section-name">{group}</span>
-				<span className="clv-section-count">{count}</span>
-			</button>
+			{/* The collapse toggle and the close × are SIBLINGS inside a header wrapper
+			    — NOT nested — so both are real <button>s with native Enter/Space and no
+			    keydown-bubbling collision. */}
+			<div className="clv-section-head-wrap">
+				<button
+					className={"clv-section-head" + (open ? " open" : "")}
+					onClick={() => setOpen((o) => !o)}
+					aria-expanded={open}
+					title={group}
+				>
+					<span className="clv-section-chev">
+						<Icon name={open ? "chevDown" : "chevRight"} size={11} />
+					</span>
+					<span className="clv-section-name">{group}</span>
+					<span className="clv-section-count">{count}</span>
+				</button>
+				{/* Close the whole group. Shown on header hover / focus-visible (see
+				    blocks.css); a normal tab stop so keyboard users can reach it. */}
+				<button
+					className="clv-section-close"
+					title="close group"
+					aria-label="close group"
+					onClick={() => onClose(closeIds)}
+				>
+					×
+				</button>
+			</div>
 			{open && (
 				<div className="clv-section-files">
 					{files.length === 0 ? <div className="clv-section-empty">{emptyMessage}</div> : renderList(files)}
@@ -221,20 +265,33 @@ type FileRowProps = {
 	active: boolean;
 	nameMode: DisplayMode;
 	onSelect: (id: string) => void;
+	onClose: (ids: string[]) => void;
 	depth: number;
 };
 
-function FileRow({ entry, active, nameMode, onSelect, depth }: FileRowProps) {
+function FileRow({ entry, active, nameMode, onSelect, onClose, depth }: FileRowProps) {
+	// The select button and the close × are SIBLINGS inside a wrapper — NOT nested —
+	// so both are real <button>s with native Enter/Space and no keydown-bubbling
+	// collision (a nested × inside a keydown-handling parent was unreachable by
+	// keyboard). FileRow is shared by the flat list, the tree, and grouped sections,
+	// so this layout covers all three views. The wrapper carries the indent so the ×
+	// still aligns to the row's right edge regardless of depth.
 	return (
-		<button
-			className={"clv-file-row" + (active ? " active" : "")}
-			style={{ paddingLeft: 8 + depth * 12 }}
-			onClick={() => onSelect(entry.id)}
-			title={entry.path}
-		>
-			<Icon name="file" size={12} />
-			<span className="nm">{displayLabel(entry, nameMode)}</span>
-		</button>
+		<div className="clv-file-row-wrap" style={{ paddingLeft: depth * 12 }}>
+			<button
+				className={"clv-file-row" + (active ? " active" : "")}
+				onClick={() => onSelect(entry.id)}
+				title={entry.path}
+			>
+				<Icon name="file" size={12} />
+				<span className="nm">{displayLabel(entry, nameMode)}</span>
+			</button>
+			{/* Close this single file. Shown on row hover / focus-visible (see
+			    blocks.css); a normal tab stop so keyboard users can reach it. */}
+			<button className="clv-file-close" title="close file" aria-label="close file" onClick={() => onClose([entry.id])}>
+				×
+			</button>
+		</div>
 	);
 }
 
@@ -243,13 +300,22 @@ type FlatListProps = {
 	currentId: string | undefined;
 	nameMode: DisplayMode;
 	onSelect: (id: string) => void;
+	onClose: (ids: string[]) => void;
 };
 
-function FlatList({ files, currentId, nameMode, onSelect }: FlatListProps) {
+function FlatList({ files, currentId, nameMode, onSelect, onClose }: FlatListProps) {
 	return (
 		<nav className="clv-filelist">
 			{files.map((f) => (
-				<FileRow key={f.id} entry={f} active={f.id === currentId} nameMode={nameMode} onSelect={onSelect} depth={0} />
+				<FileRow
+					key={f.id}
+					entry={f}
+					active={f.id === currentId}
+					nameMode={nameMode}
+					onSelect={onSelect}
+					onClose={onClose}
+					depth={0}
+				/>
 			))}
 		</nav>
 	);
@@ -260,9 +326,10 @@ type TreeListProps = {
 	currentId: string | undefined;
 	nameMode: DisplayMode;
 	onSelect: (id: string) => void;
+	onClose: (ids: string[]) => void;
 };
 
-function TreeList({ nodes, currentId, nameMode, onSelect }: TreeListProps) {
+function TreeList({ nodes, currentId, nameMode, onSelect, onClose }: TreeListProps) {
 	return (
 		<nav className="clv-filelist">
 			{nodes.map((n) => (
@@ -272,6 +339,7 @@ function TreeList({ nodes, currentId, nameMode, onSelect }: TreeListProps) {
 					currentId={currentId}
 					nameMode={nameMode}
 					onSelect={onSelect}
+					onClose={onClose}
 					depth={0}
 				/>
 			))}
@@ -284,10 +352,11 @@ type TreeNodeRowProps = {
 	currentId: string | undefined;
 	nameMode: DisplayMode;
 	onSelect: (id: string) => void;
+	onClose: (ids: string[]) => void;
 	depth: number;
 };
 
-function TreeNodeRow({ node, currentId, nameMode, onSelect, depth }: TreeNodeRowProps) {
+function TreeNodeRow({ node, currentId, nameMode, onSelect, onClose, depth }: TreeNodeRowProps) {
 	const [open, setOpen] = useState(true);
 	if (node.kind === "file") {
 		return (
@@ -296,6 +365,7 @@ function TreeNodeRow({ node, currentId, nameMode, onSelect, depth }: TreeNodeRow
 				active={node.entry.id === currentId}
 				nameMode={nameMode}
 				onSelect={onSelect}
+				onClose={onClose}
 				depth={depth}
 			/>
 		);
@@ -320,6 +390,7 @@ function TreeNodeRow({ node, currentId, nameMode, onSelect, depth }: TreeNodeRow
 						currentId={currentId}
 						nameMode={nameMode}
 						onSelect={onSelect}
+						onClose={onClose}
 						depth={depth + 1}
 					/>
 				))}

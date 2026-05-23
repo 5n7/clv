@@ -569,6 +569,131 @@ describe("startServer — onSessionChange", () => {
 	});
 });
 
+describe("startServer — POST /api/files/close", () => {
+	let cdir: string;
+	let csrv: RunningServer | undefined;
+
+	afterEach(async () => {
+		csrv?.stop();
+		csrv = undefined;
+		if (cdir) await rm(cdir, { recursive: true, force: true });
+	});
+
+	// Start a fresh server registering `names` as files in a temp dir. Returns the
+	// base URL plus a name→id map so each test can target ids without leaking into
+	// the shared `srv` from beforeAll.
+	async function startWith(
+		names: string[],
+		onSessionChange?: (files: Array<{ path: string; group: string }>) => void,
+	): Promise<{ base: string; ids: Record<string, string> }> {
+		cdir = await mkdtemp(join(tmpdir(), "clv-close-"));
+		const paths: string[] = [];
+		const ids: Record<string, string> = {};
+		for (const name of names) {
+			const p = join(cdir, name);
+			await Bun.write(p, `# ${name}\n`);
+			paths.push(p);
+			ids[name] = fileIdFromPath(p);
+		}
+		csrv = await startServer({
+			paths,
+			port: 0,
+			group: "default",
+			theme: "auto",
+			watch: false,
+			recursive: false,
+			onSessionChange,
+		});
+		return { base: `http://localhost:${csrv.port}`, ids };
+	}
+
+	test("closing one id removes it and leaves the others; returns the updated list", async () => {
+		const { base: b, ids } = await startWith(["a.md", "b.md", "c.md"]);
+		const res = await fetch(`${b}/api/files/close`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ ids: [ids["a.md"]] }),
+		});
+		expect(res.status).toBe(200);
+		const list = (await res.json()) as FileEntry[];
+		expect(list.map((x) => x.displayName).sort()).toEqual(["b.md", "c.md"]);
+		// GET reflects the same removal (server-side state, not just the response).
+		const after = (await (await fetch(`${b}/api/files`)).json()) as FileEntry[];
+		expect(after.map((x) => x.displayName).sort()).toEqual(["b.md", "c.md"]);
+	});
+
+	test("closing multiple ids (group case) removes all of them in one call", async () => {
+		const { base: b, ids } = await startWith(["a.md", "b.md", "c.md"]);
+		const res = await fetch(`${b}/api/files/close`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ ids: [ids["a.md"], ids["b.md"]] }),
+		});
+		expect(res.status).toBe(200);
+		const list = (await res.json()) as FileEntry[];
+		expect(list.map((x) => x.displayName)).toEqual(["c.md"]);
+	});
+
+	test("an unknown id is silently ignored (200, idempotent — list unchanged for it)", async () => {
+		const { base: b, ids } = await startWith(["a.md", "b.md"]);
+		// One real id + one bogus id: the real one is removed, the bogus is a no-op.
+		const res = await fetch(`${b}/api/files/close`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ ids: [ids["a.md"], "f-deadbeef0000"] }),
+		});
+		expect(res.status).toBe(200);
+		const list = (await res.json()) as FileEntry[];
+		expect(list.map((x) => x.displayName)).toEqual(["b.md"]);
+
+		// Re-closing the already-closed id is idempotent: still 200, list unchanged.
+		const again = await fetch(`${b}/api/files/close`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ ids: [ids["a.md"]] }),
+		});
+		expect(again.status).toBe(200);
+		const list2 = (await again.json()) as FileEntry[];
+		expect(list2.map((x) => x.displayName)).toEqual(["b.md"]);
+	});
+
+	test("a malformed body (no ids / non-array / non-string elements) returns 400", async () => {
+		const { base: b } = await startWith(["a.md"]);
+		const post = (body: unknown) =>
+			fetch(`${b}/api/files/close`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(body),
+			});
+		expect((await post({ nope: true })).status).toBe(400); // no `ids`
+		expect((await post({ ids: "x" })).status).toBe(400); // non-array
+		expect((await post({ ids: [1, 2] })).status).toBe(400); // non-string elements
+		// The file is still registered (a 400 must not mutate the session).
+		const after = (await (await fetch(`${b}/api/files`)).json()) as FileEntry[];
+		expect(after.map((x) => x.displayName)).toEqual(["a.md"]);
+	});
+
+	test("close persists via onSessionChange (the smaller set is reported)", async () => {
+		const calls: Array<Array<{ path: string; group: string }>> = [];
+		const { base: b, ids } = await startWith(["a.md", "b.md"], (files) => calls.push(files));
+		// Initial register fired with both files.
+		expect(calls).toHaveLength(1);
+		expect(calls[0]!.map((f) => f.path).map((p) => p.endsWith("a.md") || p.endsWith("b.md"))).toEqual([true, true]);
+
+		const res = await fetch(`${b}/api/files/close`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ ids: [ids["a.md"]] }),
+		});
+		expect(res.status).toBe(200);
+		// notifySession fired again with ONLY b.md, so the daemon would persist the
+		// smaller set (closed files don't reappear on restart).
+		expect(calls).toHaveLength(2);
+		expect(calls[1]!.map((f) => f.path).filter((p) => p.endsWith("a.md"))).toEqual([]);
+		expect(calls[1]!.map((f) => f.path).filter((p) => p.endsWith("b.md"))).toHaveLength(1);
+	});
+});
+
 describe("startServer — grouping", () => {
 	let gdir: string;
 	let gsrv: RunningServer | undefined;

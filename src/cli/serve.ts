@@ -225,6 +225,14 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 				return json(session.list());
 			}
 
+			// Close (remove-from-session) one or more files. Checked BEFORE the
+			// `/api/files/:id` regex below so the literal "close" segment never falls
+			// into the GET-only id branch (ids are `f-<hash>`, so "close" would 404
+			// there anyway, but the explicit POST match removes any ambiguity).
+			if (path === "/api/files/close" && req.method === "POST") {
+				return handleCloseFiles(req);
+			}
+
 			const fileMatch = path.match(/^\/api\/files\/([^/]+)$/);
 			if (fileMatch) {
 				const id = safeDecode(fileMatch[1]!);
@@ -328,6 +336,38 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 		// Register each file individually: in auto mode the group differs per file.
 		for (const file of expanded.files) session.register([file], groupFor(file, explicit));
 		watcher?.add({ files: expanded.files, dirs: expanded.dirs });
+		const list = session.list();
+		broadcast({ type: "files-changed", files: list });
+		notifySession();
+		return json(list);
+	}
+
+	// Close (remove-from-session) files by id: { ids: string[] }. This drops each
+	// file from the live session ONLY — it never touches disk. Validated like
+	// handleAddFiles: a non-JSON body or a non-`string[]` `ids` is a 400.
+	//
+	// Unknown ids are silently ignored (session.remove is a no-op for them), so the
+	// call is idempotent — re-closing an already-closed id is a 200 with the same
+	// list. After removing every id we fire ONE broadcast + ONE notifySession so the
+	// sidebar updates live and the daemon persists the smaller set (a closed file
+	// therefore does NOT reappear on restart).
+	//
+	// WATCHER INTERACTION: a closed file that still EXISTS on disk inside a watched
+	// dir will NOT reappear from `change` events — `onWatchEvent`'s "change" branch
+	// returns early when `!session.has(id)`. Only an explicit re-`clv <file>` (POST
+	// /api/files) or a delete+recreate (an `add` event) brings it back. Intended.
+	async function handleCloseFiles(req: Request): Promise<Response> {
+		let body: unknown;
+		try {
+			body = await req.json();
+		} catch {
+			return json({ error: "invalid JSON body" }, 400);
+		}
+		const ids = (body as { ids?: unknown })?.ids;
+		if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")) {
+			return json({ error: "expected { ids: string[] }" }, 400);
+		}
+		for (const id of ids) session.remove(id);
 		const list = session.list();
 		broadcast({ type: "files-changed", files: list });
 		notifySession();
