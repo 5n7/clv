@@ -1,0 +1,40 @@
+{
+	"compilerOptions": {
+		// Environment setup & latest features
+		"lib": ["ESNext"],
+		"target": "ESNext",
+		"module": "Preserve",
+		"moduleDetection": "force",
+		"jsx": "react-jsx",
+		"allowJs": true,
+		"types": ["bun"],
+
+		// Bundler mode
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"resolveJsonModule": true,
+		"verbatimModuleSyntax": true,
+		"noEmit": true,
+
+		// Path aliases (shared CLI/web contract)
+		"baseUrl": ".",
+		"paths": {
+			"@shared/*": ["./src/shared/*"]
+		},
+
+		// Best practices
+		"strict": true,
+		"skipLibCheck": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+
+		// Some stricter flags (disabled by default)
+		"noUnusedLocals": false,
+		"noUnusedParameters": false,
+		"noPropertyAccessFromIndexSignature": false
+	},
+	// The web SPA (DOM globals, browser libs) is checked by src/web/tsconfig.json.
+	// This root config covers the CLI + shared contract (no DOM lib).
+	"exclude": ["src/web", "dist", "node_modules"]
+}
