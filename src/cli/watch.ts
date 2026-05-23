@@ -11,10 +11,17 @@ import { isMarkdownPath } from "./session";
 // directory watching on Linux becomes a problem, THIS FILE is the single place
 // to swap the `node:fs` implementation for `chokidar`. Do not add chokidar yet.
 //
-// Per-file `fs.watch` also dies when an editor rename-replaces the file (vim,
-// Neovim, atomic-save patterns): the original inode is gone and the watcher
-// stops firing. We accept that as v1 behavior; the stat-based "exists now →
-// change" classification still produces correct events while the watcher lives.
+// Per-file `fs.watch` binds to the file's inode, so an editor that saves
+// atomically (write temp file + rename over the target — vim, Neovim, many
+// formatters, common on macOS) replaces the inode and the original handle goes
+// silent forever. We handle this the way k1LoW/mo does: when a file watch emits
+// a `rename` event we wait briefly, then `stat` the path. If the file still
+// exists there, the inode was swapped by an atomic save, so we close the stale
+// handle and re-attach a fresh `fs.watch` to the same path (binding to the new
+// inode), then emit a change. If the path is gone, we leave it to the debounced
+// `schedule` logic, which emits the `unlink`. On macOS FSEvents a plain write
+// can also surface as `rename`; that is harmless — the stat check is the gate
+// and re-attaching a still-live path just closes and reopens the handle.
 
 export type WatchEvent = {
 	type: "change" | "add" | "unlink";
@@ -25,6 +32,10 @@ export type WatchEvent = {
 // single logical change; we coalesce per-path and emit once the dust settles,
 // re-stat'ing at that point so the final event reflects the post-change state.
 const DEBOUNCE_MS = 80;
+
+// Delay (ms) after a `rename` event before re-stat'ing the path to decide
+// whether to re-attach a fresh watch handle (atomic-save inode swap).
+const REWATCH_MS = 100;
 
 function exists(path: string): boolean {
 	try {
@@ -39,16 +50,25 @@ export function createWatcher(
 	opts: { files: string[]; dirs: string[]; recursive: boolean },
 	onEvent: (e: WatchEvent) => void,
 ): { close(): void; add(more: { files: string[]; dirs: string[] }): void } {
-	const watchers: FSWatcher[] = [];
-	const timers = new Map<string, ReturnType<typeof setTimeout>>();
 	// Paths we currently believe exist, used to distinguish add vs change for
 	// directory events (a path we've never seen before that now exists is an add).
 	const known = new Set<string>();
-	// Absolute paths for which an fs.watch handle is already installed. Distinct
-	// from `known` (which tracks "currently exists" and is mutated on unlink): this
-	// set tracks "did we attach a handle", so repeated add() of the same path on
-	// the long-lived daemon does not stack duplicate handles/timers.
+	// Absolute paths of watched DIRECTORIES for which a handle is already
+	// installed. File dedup is handled by `fileWatchers.has(abs)` instead; this
+	// set tracks directories so repeated add() of the same dir on the long-lived
+	// daemon does not stack duplicate handles.
 	const watchedAbs = new Set<string>();
+	// Directory watchers: these never need rewatch logic, so they stay in a flat
+	// array keyed only by `watchedAbs` for dedup.
+	const dirWatchers: FSWatcher[] = [];
+	// File watchers keyed by absolute path so an individual file's handle can be
+	// replaced when an atomic save swaps the inode (see IMPLEMENTATION NOTE).
+	const fileWatchers = new Map<string, FSWatcher>();
+	const timers = new Map<string, ReturnType<typeof setTimeout>>();
+	// Per-path timers for the delayed rename→stat→re-attach routine. Kept separate
+	// from `timers` so a rename's rewatch debounce does not clobber the change
+	// debounce (and vice versa).
+	const rewatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	const schedule = (path: string): void => {
 		const existing = timers.get(path);
@@ -71,25 +91,60 @@ export function createWatcher(
 		);
 	};
 
+	// Low-level attach shared by initial watch and re-attach. Sets the map entry
+	// only on success, so a throw leaves no stale entry.
+	const attachFileWatch = (abs: string): void => {
+		try {
+			fileWatchers.set(
+				abs,
+				watch(abs, (eventType) => {
+					schedule(abs);
+					if (eventType === "rename") scheduleRewatch(abs);
+				}),
+			);
+		} catch {
+			// File vanished before we could watch it; ignore.
+		}
+	};
+
+	// Re-stat after a `rename` and re-attach a fresh handle if the file still
+	// exists at the path (its inode was swapped by an atomic save). Debounced
+	// per-path on its own timer map.
+	const scheduleRewatch = (abs: string): void => {
+		const existing = rewatchTimers.get(abs);
+		if (existing) clearTimeout(existing);
+		rewatchTimers.set(
+			abs,
+			setTimeout(() => {
+				rewatchTimers.delete(abs);
+				// The daemon may have dropped this file in the meantime.
+				if (!fileWatchers.has(abs)) return;
+				// Genuinely gone → leave the unlink to `schedule`'s debounce.
+				if (!exists(abs)) return;
+				// Inode swapped: close the stale handle and bind a fresh one.
+				fileWatchers.get(abs)?.close();
+				fileWatchers.delete(abs);
+				attachFileWatch(abs);
+				// Emit the post-rename content as a change.
+				schedule(abs);
+			}, REWATCH_MS),
+		);
+	};
+
 	const watchFile = (file: string): void => {
 		const abs = resolve(file);
 		known.add(abs);
 		// Skip if already watched: repeated `clv <samefile>` POSTs would otherwise
 		// stack duplicate fs.watch handles on the long-lived daemon.
-		if (watchedAbs.has(abs)) return;
-		try {
-			watchers.push(watch(abs, () => schedule(abs)));
-			watchedAbs.add(abs);
-		} catch {
-			// File vanished before we could watch it; ignore.
-		}
+		if (fileWatchers.has(abs)) return;
+		attachFileWatch(abs);
 	};
 
 	const watchDir = (dir: string): void => {
 		const absDir = resolve(dir);
 		if (watchedAbs.has(absDir)) return;
 		try {
-			watchers.push(
+			dirWatchers.push(
 				watch(absDir, { recursive: opts.recursive }, (_event, filename) => {
 					if (!filename) return;
 					const abs = resolve(absDir, filename.toString());
@@ -115,8 +170,12 @@ export function createWatcher(
 		close() {
 			for (const t of timers.values()) clearTimeout(t);
 			timers.clear();
-			for (const w of watchers) w.close();
-			watchers.length = 0;
+			for (const t of rewatchTimers.values()) clearTimeout(t);
+			rewatchTimers.clear();
+			for (const w of dirWatchers) w.close();
+			dirWatchers.length = 0;
+			for (const w of fileWatchers.values()) w.close();
+			fileWatchers.clear();
 			watchedAbs.clear();
 		},
 	};

@@ -7,6 +7,11 @@ import { join } from "node:path";
 
 import { createWatcher, type WatchEvent } from "./watch";
 
+// FSEvents does not begin delivering events the instant fs.watch returns; give
+// the watch a brief moment to attach before the first write or the first
+// event can be missed entirely.
+const SETTLE_MS = 150;
+
 // fs.watch on macOS (FSEvents) has noticeable latency on top of the 80ms
 // debounce, so we poll generously instead of using fixed sleeps.
 async function waitFor<T>(predicate: () => T | undefined, timeoutMs = 5000): Promise<T> {
@@ -18,11 +23,6 @@ async function waitFor<T>(predicate: () => T | undefined, timeoutMs = 5000): Pro
 	}
 	throw new Error("waitFor: timed out");
 }
-
-// FSEvents does not begin delivering events the instant fs.watch returns; give
-// the watch a brief moment to attach before the first write or the first
-// event can be missed entirely.
-const SETTLE_MS = 150;
 
 let dir: string;
 let watcher: { close(): void; add(more: { files: string[]; dirs: string[] }): void } | undefined;
@@ -87,6 +87,49 @@ describe("createWatcher — directly watched file", () => {
 
 		await Bun.write(file, "# modified");
 		await waitFor(() => events.find((e) => e.type === "change" && e.path === file));
+	});
+
+	// Regression guard for the atomic-save inode swap. A per-file fs.watch binds to
+	// the file's inode; an editor "atomic save" writes a temp file then rename()s it
+	// over the target, swapping the inode. The ORIGINAL handle then goes silent
+	// forever, so on the old code the watcher would be dead after the first swap and
+	// no further change events would arrive. The new code re-attaches a fresh watch
+	// after a `rename` (see REWATCH_MS in watch.ts). We MUST use node:fs rename here
+	// rather than Bun.write: Bun.write truncates in place and keeps the inode, so it
+	// would never exercise the rewatch path. The key assertion is the SECOND edit:
+	// it only fires if the watcher survived the first inode swap.
+	test("keeps emitting change across an atomic-save inode swap (rename replace)", async () => {
+		dir = mkdtempSync(join(tmpdir(), "clv-watch-"));
+		const file = join(dir, "watched.md");
+		await Bun.write(file, "# initial");
+
+		const events: WatchEvent[] = [];
+		watcher = createWatcher({ files: [file], dirs: [], recursive: false }, (e) => events.push(e));
+		await Bun.sleep(SETTLE_MS);
+
+		// First atomic save: write a sibling temp file, then rename it over the
+		// target. This swaps the inode exactly like vim/Neovim/formatters do.
+		const tmp1 = join(dir, "watched.md.tmp1");
+		await Bun.write(tmp1, "# first save");
+		fs.renameSync(tmp1, file);
+		await waitFor(() => events.find((e) => e.type === "change" && e.path === file));
+
+		// A single atomic rename produces more than one change on the new code (the
+		// debounced `schedule` plus the rewatch's own `schedule` after re-attaching).
+		// Drain those before capturing the baseline so the next observed change is
+		// unambiguously caused by the SECOND rename, not residual events from the
+		// first one.
+		await Bun.sleep(300);
+
+		// THE KEY ASSERTION: after the inode swap the watcher must still be live.
+		// Perform a SECOND atomic-save replace and require another change event.
+		// On the old (pre-rewatch) code this event would never arrive because the
+		// original handle was bound to the now-discarded inode.
+		const before = events.length;
+		const tmp2 = join(dir, "watched.md.tmp2");
+		await Bun.write(tmp2, "# second save");
+		fs.renameSync(tmp2, file);
+		await waitFor(() => events.slice(before).find((e) => e.type === "change" && e.path === file));
 	});
 });
 
