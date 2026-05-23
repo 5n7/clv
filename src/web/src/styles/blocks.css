@@ -318,6 +318,106 @@
 	padding: 8px 4px;
 }
 
+/* ---------- serve-mode grouped sidebar (Option A) ---------- */
+/* Rendered only when ≥1 named group exists (running inside a git repo); the
+   flat/tree list above stays the no-named-group fallback. Ported from the
+   option-a.css mockup, adapted to the clv- prefix + existing tokens. */
+.clv-h6-meta {
+	margin-left: 6px;
+	color: var(--ink-3);
+	letter-spacing: 0;
+}
+.clv-grouplist {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+}
+.clv-section {
+	position: relative;
+	border-radius: 8px;
+	padding: 2px 2px 4px;
+	margin: 2px 0;
+}
+/* Search filtered every file out of this group: keep it visible as a thin rail
+   (mockup's .a-section.no-match) so the group structure stays legible. */
+.clv-section.no-match {
+	opacity: 0.45;
+}
+/* Active-group accent strip (the group holding the current file). */
+.clv-section.active::before {
+	content: "";
+	position: absolute;
+	left: -6px;
+	top: 6px;
+	bottom: 6px;
+	width: 3px;
+	border-radius: 0 3px 3px 0;
+	background: var(--accent);
+}
+.clv-section-head {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	width: 100%;
+	border: none;
+	background: transparent;
+	padding: 5px 8px 5px 6px;
+	border-radius: 6px;
+	cursor: pointer;
+	color: var(--ink);
+	text-align: left;
+	font: inherit;
+}
+.clv-section-head:hover {
+	background: var(--bg-sunk);
+}
+.clv-section-chev {
+	display: flex;
+	width: 12px;
+	color: var(--ink-3);
+}
+.clv-section-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--mono);
+	font-size: 12.5px;
+	letter-spacing: 0.01em;
+	color: var(--ink);
+}
+.clv-section.active .clv-section-name {
+	color: var(--accent-ink);
+	font-weight: 600;
+}
+.clv-section-count {
+	font-family: var(--mono);
+	font-size: 10.5px;
+	color: var(--ink-4);
+	background: var(--bg-sunk);
+	border-radius: 999px;
+	padding: 1px 8px;
+	min-width: 22px;
+	text-align: center;
+}
+.clv-section.active .clv-section-count {
+	background: var(--accent-2);
+	color: var(--accent-ink);
+}
+.clv-section-files {
+	padding-left: 12px;
+}
+.clv-section-empty {
+	font-family: var(--mono);
+	font-size: 11px;
+	color: var(--ink-4);
+	padding: 4px 8px;
+}
+
 /* ---------- serve-mode reconnect banner ---------- */
 /* Fixed, unobtrusive pill: does not shift layout or cover content. Shown only
    after the live connection has dropped (see ServerApp's everConnected guard). */

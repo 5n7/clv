@@ -128,6 +128,32 @@ describe("parseCliArgs — run outcome unchanged", () => {
 	});
 });
 
+describe("parseCliArgs — --group", () => {
+	test("-g / --group set the group; undefined when absent (caller resolves auto)", () => {
+		expect(run(["a.md", "-g", "design"]).group).toBe("design");
+		expect(run(["a.md", "--group", "design"]).group).toBe("design");
+		expect(run(["a.md"]).group).toBeUndefined();
+	});
+
+	test("a slash in the group name is allowed (owner/repo)", () => {
+		expect(run(["a.md", "-g", "5n7/clv"]).group).toBe("5n7/clv");
+	});
+
+	test("the value is trimmed", () => {
+		expect(run(["a.md", "--group=  design  "]).group).toBe("design");
+	});
+
+	test("a valueless -g / --group throws (cac yields boolean true)", () => {
+		expect(() => parseCliArgs(["a.md", "-g"])).toThrow();
+		expect(() => parseCliArgs(["a.md", "--group"])).toThrow();
+	});
+
+	test("an empty / whitespace-only group throws", () => {
+		expect(() => parseCliArgs(["a.md", "--group="])).toThrow();
+		expect(() => parseCliArgs(["a.md", "--group", "   "])).toThrow();
+	});
+});
+
 describe("parseCliArgs — themeExplicit / watchExplicit", () => {
 	test("both false when neither flag is present (defaults applied)", () => {
 		const a = run(["a.md"]);

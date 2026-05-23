@@ -65,10 +65,24 @@ async function runServe(args: CliArgs): Promise<void> {
 	}
 
 	const resolved = args.paths.map((p) => resolve(p));
+	// Group resolution is per-file and happens in the DAEMON, not here: an explicit
+	// `-g`/`--group` applies to ALL paths in this invocation, but when it is omitted
+	// each file is auto-grouped by the GitHub owner/repo of the repo that file's OWN
+	// directory belongs to (else "default"). We CAN'T resolve auto here: directory
+	// inputs expand to individual files inside the daemon, and the watcher discovers
+	// new files later — neither is visible to this client. So we signal intent via
+	// the body: include `group` ONLY when explicit; OMIT it for auto, which the
+	// server reads as "resolve each file by its own dir". This is also why auto must
+	// be path-based (not cwd-based): the daemon's cwd is unrelated to where clv ran.
+	const body: { paths: string[]; recursive: boolean; group?: string } = {
+		paths: resolved,
+		recursive: args.recursive,
+	};
+	if (args.group !== undefined) body.group = args.group;
 	const res = await fetch(`http://localhost:${port}/api/files`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ paths: resolved, recursive: args.recursive }),
+		body: JSON.stringify(body),
 	});
 	if (!res.ok) {
 		console.error(`clv: failed to register files (HTTP ${res.status})`);

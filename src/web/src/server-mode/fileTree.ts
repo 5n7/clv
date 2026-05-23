@@ -23,6 +23,31 @@ export function filterFiles(files: FileEntry[], query: string): FileEntry[] {
 	return files.filter((f) => f.displayName.toLowerCase().includes(q) || f.title.toLowerCase().includes(q));
 }
 
+// Are there any NAMED groups (a group other than "default")? When false, the
+// sidebar renders the flat/tree list unchanged; when true, it renders the
+// grouped (Option-A) sections.
+export function hasNamedGroups(files: FileEntry[]): boolean {
+	return files.some((f) => f.group !== "default");
+}
+
+// Group files into named sections, preserving first-seen group order AND file
+// order within each group. Used by the Option-A grouped sidebar. Display-only:
+// the group never affects routing (files keep their globally-unique `?file=<id>`).
+export function groupFiles(files: FileEntry[]): Array<{ group: string; files: FileEntry[] }> {
+	const order: string[] = [];
+	const byGroup = new Map<string, FileEntry[]>();
+	for (const f of files) {
+		let bucket = byGroup.get(f.group);
+		if (!bucket) {
+			bucket = [];
+			byGroup.set(f.group, bucket);
+			order.push(f.group);
+		}
+		bucket.push(f);
+	}
+	return order.map((group) => ({ group, files: byGroup.get(group)! }));
+}
+
 // Build a directory hierarchy from each entry's `path`, rooted below the longest
 // common directory prefix so the tree isn't buried under shared ancestors.
 // Directories are sorted before files; both alphabetically within their group.

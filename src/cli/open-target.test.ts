@@ -5,7 +5,7 @@ import { join, sep } from "node:path";
 import { pickOpenId } from "./open-target";
 
 function entry(path: string): FileEntry {
-	return { id: `id:${path}`, path, displayName: path.split(sep).pop()!, title: path };
+	return { id: `id:${path}`, path, displayName: path.split(sep).pop()!, title: path, group: "default" };
 }
 
 describe("pickOpenId", () => {

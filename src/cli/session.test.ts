@@ -97,11 +97,40 @@ describe("Session.remove", () => {
 	test("drops a file by id", () => {
 		const session = new Session();
 		const path = "/abs/x.md";
-		session.register([path]);
+		session.register([path], "default");
 		const id = fileIdFromPath(path);
 		expect(session.has(id)).toBe(true);
 		session.remove(id);
 		expect(session.has(id)).toBe(false);
+	});
+});
+
+describe("Session — grouping", () => {
+	test("register stores the group and list() carries it", () => {
+		const session = new Session();
+		session.register(["/abs/x.md"], "5n7/clv");
+		const entry = session.list()[0]!;
+		expect(entry.group).toBe("5n7/clv");
+	});
+
+	test("last-write-wins: re-registering an existing file updates its group", () => {
+		const session = new Session();
+		const path = "/abs/x.md";
+		session.register([path], "default");
+		expect(session.list()[0]!.group).toBe("default");
+		// Re-register the same path under a new group: the group updates in place.
+		session.register([path], "design");
+		const list = session.list();
+		expect(list).toHaveLength(1);
+		expect(list[0]!.group).toBe("design");
+	});
+
+	test("re-registering preserves insertion order (the file does not jump)", () => {
+		const session = new Session();
+		session.register(["/abs/a.md", "/abs/b.md"], "default");
+		// Re-register the first file under a new group; order must stay a, b.
+		session.register(["/abs/a.md"], "design");
+		expect(session.list().map((e) => e.path)).toEqual(["/abs/a.md", "/abs/b.md"]);
 	});
 });
 
@@ -122,7 +151,7 @@ describe("Session.list — mtime-keyed title cache", () => {
 		writeFileSync(b, "# Beta\n");
 
 		const session = new Session();
-		session.register([a, b]);
+		session.register([a, b], "default");
 
 		// First list() reads both files to derive titles.
 		spy = spyOn(fs, "readFileSync");
@@ -146,7 +175,7 @@ describe("Session.list — mtime-keyed title cache", () => {
 		fs.utimesSync(a, past, past);
 
 		const session = new Session();
-		session.register([a]);
+		session.register([a], "default");
 		expect(session.list()[0]!.title).toBe("Old Title");
 
 		// Rewrite with a fresh mtime; the cache must re-read and reflect the new heading.

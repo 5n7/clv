@@ -160,6 +160,30 @@ describe("daemon lifecycle (CLI integration)", () => {
 		expect(names).toEqual(["note.md", "other.md"]);
 	}, 20000);
 
+	test("session restore round-trips per-file groups AND migrates a legacy bare-string entry", async () => {
+		// Pre-seed session.json with a MIXED shape: one legacy bare string (must
+		// migrate to group "default") and one new {path, group} object (must keep its
+		// group). A fresh daemon restores both; /api/files reflects the groups.
+		const legacy = join(dir, "legacy.md");
+		const grouped = join(dir, "grouped.md");
+		writeFileSync(legacy, "# Legacy\n");
+		writeFileSync(grouped, "# Grouped\n");
+		writeFileSync(join(dir, "session.json"), JSON.stringify({ files: [legacy, { path: grouped, group: "5n7/clv" }] }));
+
+		// Spawn a daemon by registering an unrelated existing file; restore merges in
+		// legacy.md + grouped.md (no daemon was running, so this is a fresh start).
+		const trigger = join(dir, "trigger.md");
+		writeFileSync(trigger, "# Trigger\n");
+		await runCli([trigger, "--port", String(port), "--no-open"]);
+
+		const livePort = readState()!.port;
+		const res = await fetch(`http://localhost:${livePort}/api/files`);
+		const list = (await res.json()) as Array<{ displayName: string; group: string }>;
+		const byName = new Map(list.map((e) => [e.displayName, e.group]));
+		expect(byName.get("legacy.md")).toBe("default");
+		expect(byName.get("grouped.md")).toBe("5n7/clv");
+	}, 20000);
+
 	test("a stale state file (dead pid) is recovered by re-spawning cleanly", async () => {
 		// Pre-seed a zombie state: a dead pid, nothing listening on the port.
 		writeFileSync(

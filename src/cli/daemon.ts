@@ -171,11 +171,17 @@ export async function findOrSpawnDaemon(opts: {
 // membership changes (add/unlink/POST) are written back via onSessionChange.
 export async function runDaemonMain(opts: { port: number; theme: DaemonTheme; watch: boolean }): Promise<void> {
 	// Filter to files that still exist — skip-nonexistent avoids resurrecting
-	// files deleted while the daemon was down.
-	const restored = (readSession()?.files ?? []).filter((f) => existsSync(f));
+	// files deleted while the daemon was down. readSession migrates any legacy
+	// bare-string session entries to { path, group: "default" }.
+	const restored = (readSession()?.files ?? []).filter((f) => existsSync(f.path));
 
 	const srv = await startServer({
-		paths: restored,
+		// The daemon starts with no files of its own; real files (and their groups)
+		// arrive via `restore` below and subsequent POST /api/files. Its own initial
+		// group is therefore irrelevant — omit it (auto) for the empty `paths`.
+		paths: [],
+		// Restore each prior file under its own group (per-file last-write-wins).
+		restore: restored,
 		port: opts.port,
 		theme: opts.theme,
 		watch: opts.watch,

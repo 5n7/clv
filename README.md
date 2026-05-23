@@ -5,7 +5,7 @@
 `clv` turns Markdown that Claude Code writes into a rich, live preview you can read in any browser. Claude embeds small JSON blocks (`` ```clv:<type> ``) in its review or explanation output; `clv` parses them, validates each against a schema, and renders them as callouts, annotated code, diffs, charts, dependency graphs, step-by-step walkthroughs, and more.
 
 - **Live preview** — `clv review.md` opens the document in your browser and live-reloads it on every save, preserving scroll position.
-- **Multi-file** — point `clv` at several files or a directory and navigate them from a sidebar (flat/tree view, filename/heading-title toggle, search) at one localhost address.
+- **Multi-file** — point `clv` at several files or a directory and navigate them from a sidebar (flat/tree view, filename/heading-title toggle, search) at one localhost address. Files are grouped by their GitHub `owner/repo` automatically, or under a name you pass with `-g`/`--group`.
 - **Background daemon** — re-running `clv` adds files to the already-running session instead of starting a new server; the open files are persisted and restored on restart.
 - **Static export** — `clv --output out.html` writes a single self-contained HTML file (all JS, CSS, fonts, and images inlined; no network calls). Open it offline, email it, or commit it.
 - **Graceful** — unknown or malformed blocks render as a clearly marked fallback instead of failing the whole document.
@@ -40,7 +40,7 @@ bunx @5n7/clv notes.md design.md
 bun run src/cli/index.ts review.md
 ```
 
-`clv <paths...>` starts (or reuses) a background live preview server on `localhost:7421` and opens your browser to it. The paths may be files or directories; `clv` watches them and live-reloads the browser whenever a file changes, preserving scroll position. When more than one file is open, a sidebar lets you navigate between them and the active file is reflected in the URL (`?file=<id>`).
+`clv <paths...>` starts (or reuses) a background live preview server on `localhost:7421` and opens your browser to it. The paths may be files or directories; `clv` watches them and live-reloads the browser whenever a file changes, preserving scroll position. When more than one file is open, a sidebar lets you navigate between them and the active file is reflected in the URL (`?file=<id>`). Files are organized into collapsible sidebar groups: by default each file is grouped by the GitHub `owner/repo` of the repository its own directory belongs to (files outside any repo fall under `"default"`), so opening files from several repos keeps them visually separated. Pass `-g`/`--group <name>` to put the files from that invocation under an explicit name instead.
 
 The server runs as a detached daemon and outlives the command that launched it. Re-running `clv` with new paths registers them into the running session rather than spawning a second server, and the open files are persisted so they reappear if the daemon is restarted.
 
@@ -88,6 +88,7 @@ claude -p "review this PR" | bunx @5n7/clv
 | `-w`, `--watch`               | on      | Watch files and live-reload. On by default; use `--no-watch` to disable.                                                                                                                 |
 | `--no-watch`                  | —       | Disable file watching / live-reload.                                                                                                                                                     |
 | `-R`, `--recursive`           | false   | Recurse into subdirectories when a directory is given.                                                                                                                                   |
+| `-g`, `--group <name>`        | auto    | Group files under `<name>` in the sidebar. When omitted, each file is grouped by the GitHub `owner/repo` of its own repo, else `"default"`.                                              |
 | `--no-open`                   | false   | Do not auto-launch the browser.                                                                                                                                                          |
 | `--title <string>`            | `"clv"` | HTML `<title>`.                                                                                                                                                                          |
 | `--theme <auto\|light\|dark>` | `auto`  | Color scheme. `auto` follows `prefers-color-scheme`.                                                                                                                                     |

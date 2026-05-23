@@ -3,19 +3,31 @@ import type { WsServerMessage } from "@shared/ws";
 import { realpathSync, statSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 
+import { resolveAutoGroup } from "./git";
 import { injectServer } from "./inject";
 import { expandPaths, fileIdFromPath, Session } from "./session";
 import { createWatcher } from "./watch";
 
 export type ServerOptions = {
 	paths: string[];
+	// Explicit sidebar group for the initial `paths` (and the dir roots they expand
+	// to) when the user passed `-g`/`--group` — it then applies to ALL of them. When
+	// ABSENT (auto mode), each file is grouped by the GitHub owner/repo of the repo
+	// its OWN directory belongs to (else "default"), resolved on the server. Auto
+	// resolution is path-based, so it is correct regardless of the daemon's cwd.
+	group?: string;
+	// Recurse into subdirectories when expanding/watching directory inputs.
+	recursive: boolean;
+	// Daemon mode: per-file session restore. Each restored file is registered with
+	// its OWN group (last-write-wins over the initial `paths`/`group` register), so
+	// a daemon restart reappears every prior file in its original sidebar group.
+	// Restored individual files do NOT seed dir-watch roots (they never did).
+	restore?: Array<{ path: string; group: string }>;
 	// 0 → OS-assigned free port (the returned `port` reports the real one).
 	port: number;
 	theme: "auto" | "light" | "dark";
 	// Watch registered files/dirs and push WS updates. Default ON at the CLI.
 	watch: boolean;
-	// Recurse into subdirectories when expanding/watching directory inputs.
-	recursive: boolean;
 	// Daemon mode: if `port` is taken by a NON-clv process (EADDRINUSE), retry
 	// once on an OS-assigned ephemeral port instead of throwing. The returned
 	// `port` reports the actual port the server bound.
@@ -23,10 +35,10 @@ export type ServerOptions = {
 	// Daemon mode: invoked by `POST /api/shutdown` after the response flushes.
 	// When omitted, the route just calls `stop()`.
 	onShutdown?: () => void | Promise<void>;
-	// Fired with the current set of registered absolute paths whenever session
+	// Fired with the current registered files (path + group) whenever session
 	// membership changes (initial register, watcher add/unlink, POST /api/files).
 	// The daemon uses this to persist the session for restore-on-restart.
-	onSessionChange?: (absPaths: string[]) => void;
+	onSessionChange?: (files: Array<{ path: string; group: string }>) => void;
 };
 
 export type RunningServer = {
@@ -46,13 +58,60 @@ const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 // registration). No daemon lifecycle or port-in-use fallback here.
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 	const session = new Session();
-	const { files, dirs } = expandPaths(opts.paths, { recursive: opts.recursive });
-	session.register(files);
 
-	// Notify the owner (daemon) of the current registered path set so it can
-	// persist the session. Fired on membership changes only (add/unlink), not on
-	// content `change` events.
-	const notifySession = (): void => opts.onSessionChange?.(session.list().map((e) => e.path));
+	// Per-directory auto-group cache: maps a file's DIRECTORY → its resolved
+	// auto-group (the GitHub owner/repo of the repo that dir belongs to, else
+	// "default"), so we don't re-run `git` for every file in the same directory.
+	// `resolveAutoGroup` runs `git -C <dir>`, which walks up to the repo root, so a
+	// file's own dir is enough to find its repo. cwd-independent by construction.
+	// No invalidation: a daemon's lifetime is short and a mid-session remote change
+	// is not worth re-probing for.
+	const autoGroupCache = new Map<string, string>();
+	const autoGroupFor = (absPath: string): string => {
+		const dir = dirname(absPath);
+		let group = autoGroupCache.get(dir);
+		if (group === undefined) {
+			group = resolveAutoGroup(dir) ?? "default";
+			autoGroupCache.set(dir, group);
+		}
+		return group;
+	};
+	// Per-file group resolver: an explicit group (from `-g` or a POST body) applies
+	// verbatim to every file; absent → auto-group by the file's own repo. Used at
+	// every registration site so the rule is uniform.
+	const groupFor = (absPath: string, explicit: string | undefined): string => explicit ?? autoGroupFor(absPath);
+
+	const { files, dirs } = expandPaths(opts.paths, { recursive: opts.recursive });
+	// Register each file individually: in auto mode the group differs per file (by
+	// its own repo), so a single bulk `register(files, group)` won't do. Per-file
+	// `register([file], g)` is last-write-wins and preserves insertion order.
+	for (const file of files) session.register([file], groupFor(file, opts.group));
+
+	// Per-directory group registry: maps each EXPLICITLY-grouped watched directory
+	// root → that group, so a watcher-added file inherits the group of the most
+	// specific (longest-prefix) registering directory. Seeded ONLY from an explicit
+	// `opts.group`; updated by every POST /api/files that carries an explicit group.
+	// Auto (no-explicit) dirs are deliberately NOT seeded — a watcher-added file
+	// there auto-resolves by its OWN repo via `autoGroupFor`. A Map keyed by the
+	// absolute root gives LAST-WRITE-WINS per root (re-POSTing the same dir under a
+	// new group overwrites the old one) AND bounds growth (no duplicate entries).
+	// Lives here (not in session.ts) because it tracks WATCH roots, not files. NOT
+	// touched by restore: restored individual files carry their own group but add
+	// no dir watches.
+	const dirGroups = new Map<string, string>();
+	if (opts.group !== undefined) for (const root of dirs) dirGroups.set(root, opts.group);
+
+	// Daemon restore: register each prior file with its OWN group. Runs AFTER the
+	// initial register so a file present in both wins with the restore group
+	// (last-write-wins); insertion order keeps restored files ahead of fresh ones.
+	if (opts.restore) {
+		for (const f of opts.restore) session.register([f.path], f.group);
+	}
+
+	// Notify the owner (daemon) of the current registered file set (path + group)
+	// so it can persist the session. Fired on membership changes only (add/unlink),
+	// not on content `change` events.
+	const notifySession = (): void => opts.onSessionChange?.(session.entries());
 	notifySession();
 
 	// SPA shell with the serve-mode config injected; the client derives the ws
@@ -81,7 +140,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 			return;
 		}
 		if (e.type === "add") {
-			session.register([e.path]);
+			// An explicitly-grouped registering dir (longest-prefix) wins; otherwise the
+			// file auto-resolves by its own repo. So a file created under a `-g`'d dir
+			// inherits that explicit group, while one under an auto dir gets its repo's.
+			session.register([e.path], explicitDirGroup(e.path) ?? autoGroupFor(e.path));
 			broadcast({ type: "files-changed", files: session.list() });
 			notifySession();
 			return;
@@ -90,6 +152,23 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 		session.remove(id);
 		broadcast({ type: "files-changed", files: session.list() });
 		notifySession();
+	}
+
+	// Look up the EXPLICIT group of a watcher-added file by the LONGEST matching
+	// directory root in `dirGroups` (the most specific registering dir wins when
+	// roots nest), or `undefined` when no EXPLICITLY-grouped root contains it (the
+	// caller then falls back to auto-resolution by the file's own repo). A root
+	// matches when the path is the root itself or sits beneath it (`root + sep`
+	// prefix, so `/a/docs` doesn't match `/a/docs-old`). `dirGroups` now holds only
+	// explicit roots, so a hit always means an explicit group.
+	function explicitDirGroup(absPath: string): string | undefined {
+		let best: { root: string; group: string } | undefined;
+		for (const [root, group] of dirGroups) {
+			if (absPath === root || absPath.startsWith(root + sep)) {
+				if (!best || root.length > best.root.length) best = { root, group };
+			}
+		}
+		return best?.group;
 	}
 
 	// Build the Bun.serve config once; the EADDRINUSE/ephemeral retry below reuses
@@ -233,8 +312,21 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 		// absent field defers to the daemon's `opts.recursive`.
 		const recursiveBody = (body as { recursive?: unknown }).recursive;
 		const recursive = typeof recursiveBody === "boolean" ? recursiveBody : opts.recursive;
+		// An EXPLICIT `group` string in the body applies to ALL paths in this POST;
+		// an absent/non-string value means AUTO — each file is grouped by its own
+		// repo (`autoGroupFor`). The CLI sends `group` only for an explicit `-g`.
+		const groupBody = (body as { group?: unknown }).group;
+		const explicit = typeof groupBody === "string" ? groupBody : undefined;
 		const expanded = expandPaths(paths, { recursive });
-		session.register(expanded.files);
+		// Record this POST's dir roots BEFORE registering so a watcher `add` for a
+		// file created under them resolves the right group on its first event — but
+		// ONLY for an explicit group. Auto dirs are intentionally not seeded; files
+		// created under them auto-resolve by their own repo. `.set` overwrites a
+		// prior group for the same root (last-write-wins) and keeps the registry
+		// bounded across repeated POSTs.
+		if (explicit !== undefined) for (const root of expanded.dirs) dirGroups.set(root, explicit);
+		// Register each file individually: in auto mode the group differs per file.
+		for (const file of expanded.files) session.register([file], groupFor(file, explicit));
 		watcher?.add({ files: expanded.files, dirs: expanded.dirs });
 		const list = session.list();
 		broadcast({ type: "files-changed", files: list });

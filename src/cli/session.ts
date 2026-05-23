@@ -35,8 +35,9 @@ export function firstHeading(markdown: string): string | undefined {
 }
 
 export class Session {
-	// Ordered map: insertion order is the file order shown in the UI.
-	private readonly files = new Map<string, { path: string }>();
+	// Ordered map: insertion order is the file order shown in the UI. Each entry
+	// carries its sidebar `group` (see register's last-write-wins note).
+	private readonly files = new Map<string, { path: string; group: string }>();
 
 	// mtime-keyed memoization of derived titles so `list()` (called on every
 	// `GET /api/files` and `files-changed` broadcast) does not re-read every file
@@ -44,12 +45,19 @@ export class Session {
 	// mtime is unchanged, so an edit (which bumps mtime) re-reads and re-derives.
 	private readonly titleCache = new Map<string, { mtimeMs: number; title: string }>();
 
-	// Add each path (dedup by id). Non-existent paths are tolerated here; the CLI
-	// validates existence before constructing the session.
-	register(absPaths: string[]): void {
+	// Add each path under `group` (dedup by id). Non-existent paths are tolerated
+	// here; the CLI validates existence before constructing the session.
+	//
+	// LAST-WRITE-WINS: re-registering an already-known file UPDATES its group to
+	// the new one (mirrors mo's accretion — the most recent invocation's group
+	// labels the file). Insertion order is preserved on update (Map.set keeps the
+	// original key position), so the file does not jump in the list.
+	register(absPaths: string[], group: string): void {
 		for (const path of absPaths) {
 			const id = fileIdFromPath(path);
-			if (!this.files.has(id)) this.files.set(id, { path });
+			const existing = this.files.get(id);
+			if (existing) existing.group = group;
+			else this.files.set(id, { path, group });
 		}
 	}
 
@@ -78,11 +86,19 @@ export class Session {
 	// current first heading.
 	list(): FileEntry[] {
 		const entries: FileEntry[] = [];
-		for (const [id, { path }] of this.files) {
+		for (const [id, { path, group }] of this.files) {
 			const displayName = basename(path);
-			entries.push({ id, path, displayName, title: this.titleFor(id, path, displayName) });
+			entries.push({ id, path, displayName, title: this.titleFor(id, path, displayName), group });
 		}
 		return entries;
+	}
+
+	// Lightweight registry view: path + group only, WITHOUT resolving titles (no
+	// stat/read). Used by the session-persistence notify path, which needs only
+	// path/group; `list()` would do wasted title work there. New objects, so the
+	// internal map entries aren't exposed for mutation.
+	entries(): Array<{ path: string; group: string }> {
+		return [...this.files.values()].map(({ path, group }) => ({ path, group }));
 	}
 
 	// Resolve the title for a file, reusing the cache while its mtime is unchanged.

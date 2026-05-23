@@ -225,4 +225,8 @@ export type FileEntry = {
 	path: string;
 	displayName: string;
 	title: string;
+	// Sidebar grouping (serve mode). The GitHub `owner/repo` of the directory the
+	// file was registered from when inside a repo, else "default". Display-only:
+	// the routing id (`?file=<id>`) is unaffected by the group.
+	group: string;
 };

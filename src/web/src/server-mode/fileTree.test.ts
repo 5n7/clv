@@ -1,12 +1,13 @@
 import type { FileEntry } from "@shared/types";
 import { describe, expect, test } from "bun:test";
 
-import { buildFileTree, displayLabel, filterFiles, type TreeNode } from "./fileTree";
+import { buildFileTree, displayLabel, filterFiles, groupFiles, hasNamedGroups, type TreeNode } from "./fileTree";
 
 function entry(over: Partial<FileEntry> & { id: string; path: string }): FileEntry {
 	return {
 		displayName: over.path.split("/").pop() ?? over.id,
 		title: over.title ?? "Untitled",
+		group: "default",
 		...over,
 	};
 }
@@ -25,6 +26,88 @@ function flatten(nodes: TreeNode[], prefix = ""): string[] {
 	}
 	return out;
 }
+
+describe("displayLabel", () => {
+	const e = entry({ id: "1", path: "review.md", title: "PR Review" });
+
+	test("name mode uses displayName", () => {
+		expect(displayLabel(e, "name")).toBe("review.md");
+	});
+
+	test("title mode uses title", () => {
+		expect(displayLabel(e, "title")).toBe("PR Review");
+	});
+
+	test("title mode falls back to displayName when title is empty", () => {
+		const blank = entry({ id: "2", path: "x.md", title: "" });
+		expect(displayLabel(blank, "title")).toBe("x.md");
+	});
+});
+
+describe("filterFiles", () => {
+	const files = [
+		entry({ id: "1", path: "review.md", title: "PR Review" }),
+		entry({ id: "2", path: "Notes.md", title: "Design doc" }),
+	];
+
+	test("case-insensitive match on displayName", () => {
+		expect(filterFiles(files, "REVIEW").map((f) => f.id)).toEqual(["1"]);
+	});
+
+	test("case-insensitive match on title", () => {
+		expect(filterFiles(files, "design").map((f) => f.id)).toEqual(["2"]);
+	});
+
+	test("empty/whitespace query returns all", () => {
+		expect(filterFiles(files, "   ").length).toBe(2);
+	});
+
+	test("no match returns empty", () => {
+		expect(filterFiles(files, "zzz")).toEqual([]);
+	});
+});
+
+describe("hasNamedGroups", () => {
+	test("false when every file is in 'default'", () => {
+		const files = [
+			entry({ id: "1", path: "a.md", group: "default" }),
+			entry({ id: "2", path: "b.md", group: "default" }),
+		];
+		expect(hasNamedGroups(files)).toBe(false);
+	});
+
+	test("true when at least one file has a named group", () => {
+		const files = [
+			entry({ id: "1", path: "a.md", group: "default" }),
+			entry({ id: "2", path: "b.md", group: "5n7/clv" }),
+		];
+		expect(hasNamedGroups(files)).toBe(true);
+	});
+
+	test("false on empty input", () => {
+		expect(hasNamedGroups([])).toBe(false);
+	});
+});
+
+describe("groupFiles", () => {
+	test("preserves first-seen group order and file order within a group", () => {
+		const files = [
+			entry({ id: "1", path: "a.md", group: "design" }),
+			entry({ id: "2", path: "b.md", group: "default" }),
+			entry({ id: "3", path: "c.md", group: "design" }),
+			entry({ id: "4", path: "d.md", group: "default" }),
+		];
+		const grouped = groupFiles(files);
+		// "design" was seen first → it comes first; files keep their relative order.
+		expect(grouped.map((g) => g.group)).toEqual(["design", "default"]);
+		expect(grouped[0]!.files.map((f) => f.id)).toEqual(["1", "3"]);
+		expect(grouped[1]!.files.map((f) => f.id)).toEqual(["2", "4"]);
+	});
+
+	test("empty input → no groups", () => {
+		expect(groupFiles([])).toEqual([]);
+	});
+});
 
 describe("buildFileTree", () => {
 	test("trims the longest common directory prefix", () => {
@@ -75,45 +158,5 @@ describe("buildFileTree", () => {
 
 	test("empty input → empty tree", () => {
 		expect(buildFileTree([])).toEqual([]);
-	});
-});
-
-describe("filterFiles", () => {
-	const files = [
-		entry({ id: "1", path: "review.md", title: "PR Review" }),
-		entry({ id: "2", path: "Notes.md", title: "Design doc" }),
-	];
-
-	test("case-insensitive match on displayName", () => {
-		expect(filterFiles(files, "REVIEW").map((f) => f.id)).toEqual(["1"]);
-	});
-
-	test("case-insensitive match on title", () => {
-		expect(filterFiles(files, "design").map((f) => f.id)).toEqual(["2"]);
-	});
-
-	test("empty/whitespace query returns all", () => {
-		expect(filterFiles(files, "   ").length).toBe(2);
-	});
-
-	test("no match returns empty", () => {
-		expect(filterFiles(files, "zzz")).toEqual([]);
-	});
-});
-
-describe("displayLabel", () => {
-	const e = entry({ id: "1", path: "review.md", title: "PR Review" });
-
-	test("name mode uses displayName", () => {
-		expect(displayLabel(e, "name")).toBe("review.md");
-	});
-
-	test("title mode uses title", () => {
-		expect(displayLabel(e, "title")).toBe("PR Review");
-	});
-
-	test("title mode falls back to displayName when title is empty", () => {
-		const blank = entry({ id: "2", path: "x.md", title: "" });
-		expect(displayLabel(blank, "title")).toBe("x.md");
 	});
 });

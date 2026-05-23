@@ -17,7 +17,13 @@ export type DaemonState = {
 // restart can restore them (mo-style merge). SINGLE-SESSION LIMITATION: this is
 // one unkeyed file, not per-port — fine for the default single-daemon use; a
 // second daemon on another port would share/overwrite this same session file.
-export type SessionState = { files: string[] };
+//
+// SHAPE MIGRATION: the original on-disk shape was `{ files: string[] }` (bare
+// absolute paths). The current shape carries a `group` per file so the daemon
+// can restore each file into its sidebar group. `readSession` reads BOTH and
+// migrates a bare string to `{ path, group: "default" }`.
+export type SessionFile = { path: string; group: string };
+export type SessionState = { files: SessionFile[] };
 
 function isDaemonState(parsed: unknown): parsed is DaemonState {
 	const s = parsed as Partial<DaemonState>;
@@ -29,9 +35,27 @@ function isDaemonState(parsed: unknown): parsed is DaemonState {
 	);
 }
 
-function isSessionState(parsed: unknown): parsed is SessionState {
-	const files = (parsed as Partial<SessionState>)?.files;
-	return Array.isArray(files) && files.every((f) => typeof f === "string");
+// A single on-disk session element: either a legacy bare path string or the
+// current `{ path, group }` object. `readSession` normalizes both to SessionFile.
+type RawSessionFile = string | { path: string; group: string };
+
+// Validate the on-disk session shape, accepting BOTH the legacy `string[]` and
+// the current `{ path, group }[]` (and a mix of the two during the migration
+// window). Each element is checked independently; a malformed object element
+// (e.g. missing `group`) fails the whole file → "no session".
+function isRawSessionState(parsed: unknown): parsed is { files: RawSessionFile[] } {
+	const files = (parsed as { files?: unknown })?.files;
+	return (
+		Array.isArray(files) &&
+		files.every(
+			(f) =>
+				typeof f === "string" ||
+				(typeof f === "object" &&
+					f !== null &&
+					typeof (f as { path?: unknown }).path === "string" &&
+					typeof (f as { group?: unknown }).group === "string"),
+		)
+	);
 }
 
 // Absolute path to the daemon state file (exported for tests).
@@ -62,10 +86,15 @@ export function clearState(): void {
 }
 
 // Read the persisted session. Returns undefined when absent or unparseable.
+// Migrates each legacy bare-string element to `{ path, group: "default" }` so
+// callers always see the uniform SessionFile shape.
 export function readSession(): SessionState | undefined {
-	const parsed = readJsonFile(sessionFilePath(), isSessionState);
-	// Normalize to exactly { files } so a future field can't leak through.
-	return parsed ? { files: parsed.files } : undefined;
+	const parsed = readJsonFile(sessionFilePath(), isRawSessionState);
+	if (!parsed) return undefined;
+	const files = parsed.files.map<SessionFile>((f) =>
+		typeof f === "string" ? { path: f, group: "default" } : { path: f.path, group: f.group },
+	);
+	return { files };
 }
 
 // Persist the session, creating the cache dir if needed.

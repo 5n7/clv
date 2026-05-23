@@ -10,6 +10,20 @@ import { parseDocument } from "./parse";
 import { type RunningServer, startServer } from "./serve";
 import { fileIdFromPath } from "./session";
 
+// Create a real local git repo in a temp dir with a github origin remote. No
+// network: `git init` + `git remote add` are purely local, and `resolveAutoGroup`
+// only reads `remote.origin.url` via `git config`. Returns the repo's abs path.
+async function makeGitRepo(originUrl: string): Promise<string> {
+	const repo = await mkdtemp(join(tmpdir(), "clv-repo-"));
+	const run = (args: string[]): void => {
+		const proc = Bun.spawnSync(["git", "-C", repo, ...args], { stdout: "ignore", stderr: "ignore" });
+		if (!proc.success) throw new Error(`git ${args.join(" ")} failed`);
+	};
+	run(["init"]);
+	run(["remote", "add", "origin", originUrl]);
+	return repo;
+}
+
 const MARKDOWN = [
 	"# Serve Title",
 	"",
@@ -31,7 +45,14 @@ beforeAll(async () => {
 	filePath = join(dir, "doc.md");
 	await Bun.write(filePath, MARKDOWN);
 	// port 0 → OS-assigned free port (avoids CI collisions).
-	srv = await startServer({ paths: [filePath], port: 0, theme: "auto", watch: true, recursive: false });
+	srv = await startServer({
+		paths: [filePath],
+		port: 0,
+		group: "default",
+		theme: "auto",
+		watch: true,
+		recursive: false,
+	});
 	base = `http://localhost:${srv.port}`;
 });
 
@@ -249,7 +270,14 @@ describe("startServer — watch broadcasts", () => {
 		wdir = await mkdtemp(join(tmpdir(), "clv-watch-srv-"));
 		const f = join(wdir, "a.md");
 		await Bun.write(f, "# Old\n");
-		wsrv = await startServer({ paths: [wdir], port: 0, theme: "auto", watch: true, recursive: false });
+		wsrv = await startServer({
+			paths: [wdir],
+			port: 0,
+			group: "default",
+			theme: "auto",
+			watch: true,
+			recursive: false,
+		});
 
 		const { frames, ws, ready } = collectFrames(wsrv.port);
 		await ready;
@@ -275,7 +303,14 @@ describe("startServer — watch broadcasts", () => {
 	test("creating a second .md broadcasts files-changed listing both", async () => {
 		wdir = await mkdtemp(join(tmpdir(), "clv-watch-srv-"));
 		await Bun.write(join(wdir, "a.md"), "# A\n");
-		wsrv = await startServer({ paths: [wdir], port: 0, theme: "auto", watch: true, recursive: false });
+		wsrv = await startServer({
+			paths: [wdir],
+			port: 0,
+			group: "default",
+			theme: "auto",
+			watch: true,
+			recursive: false,
+		});
 
 		const { frames, ws, ready } = collectFrames(wsrv.port);
 		await ready;
@@ -300,7 +335,14 @@ describe("startServer — watch broadcasts", () => {
 		const extra = join(wdir, "extra.md");
 		await Bun.write(extra, "# Extra\n");
 		// Start with only a.md registered (point at the file, not the dir).
-		wsrv = await startServer({ paths: [join(wdir, "a.md")], port: 0, theme: "auto", watch: true, recursive: false });
+		wsrv = await startServer({
+			paths: [join(wdir, "a.md")],
+			port: 0,
+			group: "default",
+			theme: "auto",
+			watch: true,
+			recursive: false,
+		});
 
 		const { frames, ws, ready } = collectFrames(wsrv.port);
 		await ready;
@@ -326,7 +368,14 @@ describe("startServer — watch broadcasts", () => {
 	test("POST /api/files rejects a malformed body with 400", async () => {
 		wdir = await mkdtemp(join(tmpdir(), "clv-watch-srv-"));
 		await Bun.write(join(wdir, "a.md"), "# A\n");
-		wsrv = await startServer({ paths: [join(wdir, "a.md")], port: 0, theme: "auto", watch: true, recursive: false });
+		wsrv = await startServer({
+			paths: [join(wdir, "a.md")],
+			port: 0,
+			group: "default",
+			theme: "auto",
+			watch: true,
+			recursive: false,
+		});
 
 		const res = await fetch(`http://localhost:${wsrv.port}/api/files`, {
 			method: "POST",
@@ -342,7 +391,7 @@ describe("startServer — watch broadcasts", () => {
 		await Bun.write(join(wdir, "top.md"), "# Top\n");
 		await Bun.write(join(wdir, "nested", "deep.md"), "# Deep\n");
 		// Daemon defaults to recursive registration.
-		wsrv = await startServer({ paths: [], port: 0, theme: "auto", watch: false, recursive: true });
+		wsrv = await startServer({ paths: [], port: 0, group: "default", theme: "auto", watch: false, recursive: true });
 
 		const res = await fetch(`http://localhost:${wsrv.port}/api/files`, {
 			method: "POST",
@@ -363,7 +412,7 @@ describe("startServer — watch broadcasts", () => {
 		await Bun.write(join(wdir, "nested", "deep.md"), "# Deep\n");
 		// Daemon's recursive is false; a malformed `recursive:"false"` must defer to it
 		// (a string is truthy, so without runtime validation it would force recursion).
-		wsrv = await startServer({ paths: [], port: 0, theme: "auto", watch: false, recursive: false });
+		wsrv = await startServer({ paths: [], port: 0, group: "default", theme: "auto", watch: false, recursive: false });
 
 		const res = await fetch(`http://localhost:${wsrv.port}/api/files`, {
 			method: "POST",
@@ -406,6 +455,7 @@ describe("startServer — asset serving", () => {
 		asrv = await startServer({
 			paths: [md, mdInner, join(subdir, "doc.md")],
 			port: 0,
+			group: "default",
 			theme: "auto",
 			watch: false,
 			recursive: false,
@@ -491,10 +541,11 @@ describe("startServer — onSessionChange", () => {
 		await Bun.write(a, "# A\n");
 		await Bun.write(b, "# B\n");
 
-		const calls: string[][] = [];
+		const calls: Array<Array<{ path: string; group: string }>> = [];
 		ssrv = await startServer({
 			paths: [a],
 			port: 0,
+			group: "default",
 			theme: "auto",
 			watch: false,
 			recursive: false,
@@ -503,7 +554,7 @@ describe("startServer — onSessionChange", () => {
 
 		// Initial register fired with just a.md.
 		expect(calls).toHaveLength(1);
-		expect(calls[0]).toEqual([a]);
+		expect(calls[0]).toEqual([{ path: a, group: "default" }]);
 
 		const res = await fetch(`http://localhost:${ssrv.port}/api/files`, {
 			method: "POST",
@@ -514,6 +565,342 @@ describe("startServer — onSessionChange", () => {
 
 		// POST fired again with both paths.
 		expect(calls).toHaveLength(2);
-		expect([...calls[1]!].sort()).toEqual([a, b].sort());
+		expect([...calls[1]!].map((f) => f.path).sort()).toEqual([a, b].sort());
+	});
+});
+
+describe("startServer — grouping", () => {
+	let gdir: string;
+	let gsrv: RunningServer | undefined;
+
+	afterEach(async () => {
+		gsrv?.stop();
+		gsrv = undefined;
+		if (gdir) await rm(gdir, { recursive: true, force: true });
+	});
+
+	test("POST /api/files with a group reflects that group in the listed entries", async () => {
+		gdir = await mkdtemp(join(tmpdir(), "clv-group-"));
+		const a = join(gdir, "a.md");
+		await Bun.write(a, "# A\n");
+		gsrv = await startServer({ paths: [], port: 0, group: "default", theme: "auto", watch: false, recursive: false });
+
+		const res = await fetch(`http://localhost:${gsrv.port}/api/files`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ paths: [a], group: "5n7/clv" }),
+		});
+		expect(res.status).toBe(200);
+		const list = (await res.json()) as FileEntry[];
+		expect(list).toHaveLength(1);
+		expect(list[0]!.group).toBe("5n7/clv");
+	});
+
+	test("POST /api/files without a group, for a file outside any git repo, defaults to 'default'", async () => {
+		// A bare temp dir is not inside a git repo, so auto-resolution finds no
+		// owner/repo and falls back to "default".
+		gdir = await mkdtemp(join(tmpdir(), "clv-group-"));
+		const a = join(gdir, "a.md");
+		await Bun.write(a, "# A\n");
+		gsrv = await startServer({ paths: [], port: 0, theme: "auto", watch: false, recursive: false });
+
+		const res = await fetch(`http://localhost:${gsrv.port}/api/files`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ paths: [a] }),
+		});
+		const list = (await res.json()) as FileEntry[];
+		expect(list[0]!.group).toBe("default");
+	});
+
+	test("a watcher-added file inherits the group of its registering directory (longest prefix)", async () => {
+		gdir = await mkdtemp(join(tmpdir(), "clv-group-"));
+		await Bun.write(join(gdir, "seed.md"), "# Seed\n");
+		// Register the directory under a named group; the watcher then attaches.
+		gsrv = await startServer({
+			paths: [gdir],
+			port: 0,
+			group: "5n7/clv",
+			theme: "auto",
+			watch: true,
+			recursive: false,
+		});
+
+		const { frames, ws, ready } = collectFrames(gsrv.port);
+		await ready;
+		// Let the server's FSEvents watch attach before the first write.
+		await Bun.sleep(150);
+
+		const added = join(gdir, "added.md");
+		await Bun.write(added, "# Added\n");
+		const msg = await waitFor(() =>
+			frames.find(
+				(m): m is Extract<WsServerMessage, { type: "files-changed" }> =>
+					m.type === "files-changed" && m.files.some((f) => f.displayName === "added.md"),
+			),
+		);
+		const addedEntry = msg.files.find((f) => f.displayName === "added.md")!;
+		// Inherited the registering dir's group, not "default".
+		expect(addedEntry.group).toBe("5n7/clv");
+		ws.close();
+	});
+
+	test("a watcher-added file under nested registered dirs takes the LONGEST-prefix dir's group", async () => {
+		gdir = await mkdtemp(join(tmpdir(), "clv-group-"));
+		const outer = join(gdir, "outer");
+		const inner = join(outer, "inner");
+		// Seed each dir so the watcher attaches to both roots, then register them
+		// under DIFFERENT groups (outer first, inner second). The outer registration
+		// is NON-recursive so it seeds ONLY the `outer` dir-group root (a recursive
+		// outer would also seed `inner` under outer's group, defeating the test); the
+		// inner watch + dir-group come from the recursive POST below.
+		await Bun.write(join(outer, "outer-seed.md"), "# OuterSeed\n");
+		await Bun.write(join(inner, "inner-seed.md"), "# InnerSeed\n");
+		gsrv = await startServer({
+			paths: [outer],
+			port: 0,
+			group: "outer-group",
+			theme: "auto",
+			watch: true,
+			recursive: false,
+		});
+
+		// Register the nested `inner` dir under its own group via POST. dirGroups now
+		// holds both roots; the longest matching one must win for files beneath inner.
+		const reg = await fetch(`http://localhost:${gsrv.port}/api/files`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ paths: [inner], group: "inner-group", recursive: true }),
+		});
+		expect(reg.status).toBe(200);
+
+		const { frames, ws, ready } = collectFrames(gsrv.port);
+		await ready;
+		// Let the server's FSEvents watch attach before the first write.
+		await Bun.sleep(150);
+
+		// Create a brand-new file under `inner` (it did NOT exist at POST time, so it
+		// goes through the watcher's resolveGroupForPath, not the up-front register).
+		const added = join(inner, "fresh.md");
+		await Bun.write(added, "# Fresh\n");
+		const msg = await waitFor(() =>
+			frames.find(
+				(m): m is Extract<WsServerMessage, { type: "files-changed" }> =>
+					m.type === "files-changed" && m.files.some((f) => f.displayName === "fresh.md"),
+			),
+		);
+		const addedEntry = msg.files.find((f) => f.displayName === "fresh.md")!;
+		// inner is the longer (more specific) matching root → its group, not outer's.
+		expect(addedEntry.group).toBe("inner-group");
+		ws.close();
+	});
+
+	test("a registered dir does NOT capture a sibling dir that merely shares its name as a prefix", async () => {
+		gdir = await mkdtemp(join(tmpdir(), "clv-group-"));
+		// `foo` and `foobar` are siblings: `foobar` starts with the string `foo`, so a
+		// naive prefix check (without the trailing path separator) would mis-attribute a
+		// file under `foobar` to `foo`'s group. The `root + sep` guard must prevent that.
+		const foo = join(gdir, "foo");
+		const foobar = join(gdir, "foobar");
+		await Bun.write(join(foo, "foo-seed.md"), "# FooSeed\n");
+		await Bun.write(join(foobar, "foobar-seed.md"), "# FoobarSeed\n");
+		gsrv = await startServer({
+			paths: [foo],
+			port: 0,
+			group: "foo-group",
+			theme: "auto",
+			watch: true,
+			recursive: true,
+		});
+
+		// Register the sibling `foobar` under its own group.
+		const reg = await fetch(`http://localhost:${gsrv.port}/api/files`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ paths: [foobar], group: "foobar-group", recursive: true }),
+		});
+		expect(reg.status).toBe(200);
+
+		const { frames, ws, ready } = collectFrames(gsrv.port);
+		await ready;
+		// Let the server's FSEvents watch attach before the first write.
+		await Bun.sleep(150);
+
+		// New file under `foobar` (not present at POST time) → resolved via the watcher.
+		const added = join(foobar, "fresh.md");
+		await Bun.write(added, "# Fresh\n");
+		const msg = await waitFor(() =>
+			frames.find(
+				(m): m is Extract<WsServerMessage, { type: "files-changed" }> =>
+					m.type === "files-changed" && m.files.some((f) => f.displayName === "fresh.md"),
+			),
+		);
+		const addedEntry = msg.files.find((f) => f.displayName === "fresh.md")!;
+		// Must be foobar's group; `foo` must NOT have captured it via a bare-string prefix.
+		expect(addedEntry.group).toBe("foobar-group");
+		ws.close();
+	});
+
+	test("re-POSTing the same dir under a new group makes watcher-added files inherit the LATEST group (last-write-wins)", async () => {
+		gdir = await mkdtemp(join(tmpdir(), "clv-group-"));
+		await Bun.write(join(gdir, "seed.md"), "# Seed\n");
+		// Daemon-style start with no files of its own; the dir is registered via POST.
+		gsrv = await startServer({ paths: [], port: 0, group: "default", theme: "auto", watch: true, recursive: false });
+
+		// First POST registers the dir under group A.
+		const first = await fetch(`http://localhost:${gsrv.port}/api/files`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ paths: [gdir], group: "group-a" }),
+		});
+		expect(first.status).toBe(200);
+		// Second POST re-registers the SAME dir under group B; the dirGroups Map keyed
+		// by root must overwrite A with B (last-write-wins), not keep the first push.
+		const second = await fetch(`http://localhost:${gsrv.port}/api/files`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ paths: [gdir], group: "group-b" }),
+		});
+		expect(second.status).toBe(200);
+
+		const { frames, ws, ready } = collectFrames(gsrv.port);
+		await ready;
+		// Let the server's FSEvents watch attach before the first write.
+		await Bun.sleep(150);
+
+		// A brand-new file under the dir (not present at POST time) resolves its group
+		// via the watcher → must be the LATEST group, B.
+		const added = join(gdir, "added.md");
+		await Bun.write(added, "# Added\n");
+		const msg = await waitFor(() =>
+			frames.find(
+				(m): m is Extract<WsServerMessage, { type: "files-changed" }> =>
+					m.type === "files-changed" && m.files.some((f) => f.displayName === "added.md"),
+			),
+		);
+		const addedEntry = msg.files.find((f) => f.displayName === "added.md")!;
+		expect(addedEntry.group).toBe("group-b");
+		ws.close();
+	});
+});
+
+describe("startServer — auto grouping by each file's own repo", () => {
+	let asrv: RunningServer | undefined;
+	// Temp dirs (repos + plain) created per test; cleaned up after each.
+	const cleanup: string[] = [];
+
+	afterEach(async () => {
+		asrv?.stop();
+		asrv = undefined;
+		await Promise.all(cleanup.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+	});
+
+	test("POST with NO group: a file inside a github repo is grouped by its owner/repo", async () => {
+		const repo = await makeGitRepo("git@github.com:owner/repo.git");
+		cleanup.push(repo);
+		const a = join(repo, "a.md");
+		await Bun.write(a, "# A\n");
+		asrv = await startServer({ paths: [], port: 0, theme: "auto", watch: false, recursive: false });
+
+		const res = await fetch(`http://localhost:${asrv.port}/api/files`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ paths: [a] }),
+		});
+		const list = (await res.json()) as FileEntry[];
+		expect(list).toHaveLength(1);
+		expect(list[0]!.group).toBe("owner/repo");
+	});
+
+	// The key regression test: two files in TWO DIFFERENT repos, registered in ONE
+	// POST with no group, must EACH get their own owner/repo — not a single shared
+	// group resolved once from the daemon's (or invoker's) cwd.
+	test("POST with NO group: two files in DIFFERENT github repos each get their OWN owner/repo", async () => {
+		const repoA = await makeGitRepo("git@github.com:alice/projA.git");
+		const repoB = await makeGitRepo("https://github.com/bob/projB.git");
+		cleanup.push(repoA, repoB);
+		const a = join(repoA, "a.md");
+		const b = join(repoB, "b.md");
+		await Bun.write(a, "# A\n");
+		await Bun.write(b, "# B\n");
+		asrv = await startServer({ paths: [], port: 0, theme: "auto", watch: false, recursive: false });
+
+		const res = await fetch(`http://localhost:${asrv.port}/api/files`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ paths: [a, b] }),
+		});
+		const list = (await res.json()) as FileEntry[];
+		const byName = Object.fromEntries(list.map((e) => [e.displayName, e.group]));
+		expect(byName["a.md"]).toBe("alice/projA");
+		expect(byName["b.md"]).toBe("bob/projB");
+	});
+
+	test("POST with NO group: a file outside any git repo gets 'default'", async () => {
+		const plain = await mkdtemp(join(tmpdir(), "clv-plain-"));
+		cleanup.push(plain);
+		const a = join(plain, "a.md");
+		await Bun.write(a, "# A\n");
+		asrv = await startServer({ paths: [], port: 0, theme: "auto", watch: false, recursive: false });
+
+		const res = await fetch(`http://localhost:${asrv.port}/api/files`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ paths: [a] }),
+		});
+		const list = (await res.json()) as FileEntry[];
+		expect(list[0]!.group).toBe("default");
+	});
+
+	test("explicit -g applies to ALL files regardless of their repos", async () => {
+		const repoA = await makeGitRepo("git@github.com:alice/projA.git");
+		const repoB = await makeGitRepo("https://github.com/bob/projB.git");
+		cleanup.push(repoA, repoB);
+		const a = join(repoA, "a.md");
+		const b = join(repoB, "b.md");
+		await Bun.write(a, "# A\n");
+		await Bun.write(b, "# B\n");
+		asrv = await startServer({ paths: [], port: 0, theme: "auto", watch: false, recursive: false });
+
+		const res = await fetch(`http://localhost:${asrv.port}/api/files`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ paths: [a, b], group: "foo" }),
+		});
+		const list = (await res.json()) as FileEntry[];
+		// Explicit wins for both files even though they live in different repos.
+		expect(list.every((e) => e.group === "foo")).toBe(true);
+	});
+
+	test("a watcher-added file in an AUTO (no-explicit) github repo dir inherits that repo's owner/repo", async () => {
+		const repo = await makeGitRepo("git@github.com:owner/repo.git");
+		cleanup.push(repo);
+		await Bun.write(join(repo, "seed.md"), "# Seed\n");
+		// Register the dir with NO explicit group (auto), so dirGroups is NOT seeded;
+		// a file created under it must auto-resolve by the repo, not fall to "default".
+		asrv = await startServer({
+			paths: [repo],
+			port: 0,
+			theme: "auto",
+			watch: true,
+			recursive: false,
+		});
+
+		const { frames, ws, ready } = collectFrames(asrv.port);
+		await ready;
+		// Let the server's FSEvents watch attach before the first write.
+		await Bun.sleep(150);
+
+		const added = join(repo, "added.md");
+		await Bun.write(added, "# Added\n");
+		const msg = await waitFor(() =>
+			frames.find(
+				(m): m is Extract<WsServerMessage, { type: "files-changed" }> =>
+					m.type === "files-changed" && m.files.some((f) => f.displayName === "added.md"),
+			),
+		);
+		const addedEntry = msg.files.find((f) => f.displayName === "added.md")!;
+		expect(addedEntry.group).toBe("owner/repo");
+		ws.close();
 	});
 });

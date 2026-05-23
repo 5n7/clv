@@ -9,7 +9,7 @@ const DOC: Document = {
 	nodes: [{ kind: "markdown", markdown: "# T" }],
 };
 
-const FILES: FileEntry[] = [{ id: "f-abc", path: "/x/a.md", displayName: "a.md", title: "A" }];
+const FILES: FileEntry[] = [{ id: "f-abc", path: "/x/a.md", displayName: "a.md", title: "A", group: "default" }];
 
 describe("ws builders", () => {
 	test("buildHello returns the hello shape", () => {

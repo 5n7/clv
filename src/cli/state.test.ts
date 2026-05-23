@@ -80,14 +80,43 @@ describe("session round-trip", () => {
 		expect(sessionFilePath()).toBe(join(dir, "session.json"));
 	});
 
-	test("writeSession then readSession returns the same files (mkdir -p the dir)", () => {
-		const sample = { files: ["/a/x.md", "/b/y.md"] };
+	test("writeSession then readSession round-trips the new {path, group} shape", () => {
+		const sample = {
+			files: [
+				{ path: "/a/x.md", group: "5n7/clv" },
+				{ path: "/b/y.md", group: "default" },
+			],
+		};
 		writeSession(sample);
 		expect(readSession()).toEqual(sample);
 	});
 
+	test("MIGRATION: a legacy {files: string[]} session is read as {path, group:'default'}", () => {
+		// Old daemons wrote bare path strings; readSession must migrate each to a
+		// {path, group} object so the in-memory shape is uniform after restore.
+		writeFileSync(sessionFilePath(), JSON.stringify({ files: ["/a/x.md", "/b/y.md"] }));
+		expect(readSession()).toEqual({
+			files: [
+				{ path: "/a/x.md", group: "default" },
+				{ path: "/b/y.md", group: "default" },
+			],
+		});
+	});
+
+	test("MIGRATION: a mixed legacy/new array migrates the bare strings only", () => {
+		// During the migration window a session may carry both shapes; each element
+		// is normalized independently.
+		writeFileSync(sessionFilePath(), JSON.stringify({ files: ["/a/x.md", { path: "/b/y.md", group: "design" }] }));
+		expect(readSession()).toEqual({
+			files: [
+				{ path: "/a/x.md", group: "default" },
+				{ path: "/b/y.md", group: "design" },
+			],
+		});
+	});
+
 	test("clearSession removes the file and readSession returns undefined", () => {
-		writeSession({ files: ["/a/x.md"] });
+		writeSession({ files: [{ path: "/a/x.md", group: "default" }] });
 		expect(existsSync(sessionFilePath())).toBe(true);
 		clearSession();
 		expect(existsSync(sessionFilePath())).toBe(false);
@@ -103,8 +132,13 @@ describe("session round-trip", () => {
 		expect(readSession()).toBeUndefined();
 	});
 
-	test("readSession returns undefined when files is not a string[]", () => {
+	test("readSession returns undefined when files holds neither strings nor {path, group}", () => {
 		writeFileSync(sessionFilePath(), JSON.stringify({ files: [1, 2, 3] }));
+		expect(readSession()).toBeUndefined();
+	});
+
+	test("readSession returns undefined when a {path, group} element is malformed", () => {
+		writeFileSync(sessionFilePath(), JSON.stringify({ files: [{ path: "/a/x.md" }] }));
 		expect(readSession()).toBeUndefined();
 	});
 });

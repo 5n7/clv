@@ -18,6 +18,10 @@ export type CliArgs = {
 	watchExplicit: boolean;
 	// Serve-mode: recurse into subdirectories when a directory is given.
 	recursive: boolean;
+	// Serve-mode sidebar group for the registered files. `undefined` means the user
+	// did not pass `-g`/`--group`, so the server resolves the auto group per-file
+	// (each file by its own repo's GitHub owner/repo, else "default").
+	group?: string;
 	theme: "auto" | "light" | "dark";
 	// Whether `--theme` appeared in argv (vs the default). The serve flow uses this
 	// to decide whether to warn on a connect-time mismatch with a running daemon.
@@ -71,6 +75,10 @@ function buildCli() {
 	cli.option("-w, --watch", "Watch files and live-reload. Default: on.");
 	cli.option("--no-watch", "Disable file watching / live-reload.");
 	cli.option("-R, --recursive", "Recurse into subdirectories when a directory is given.");
+	cli.option(
+		"-g, --group <name>",
+		`Group files under <name> in the sidebar. Default: each file's GitHub owner/repo, else "default".`,
+	);
 	cli.option("--no-open", "Do not auto-launch the browser.");
 	// Static export (--output mode).
 	cli.option("--output <path>", "Write a self-contained HTML file to <path> instead of serving.");
@@ -86,6 +94,7 @@ function buildCli() {
 	cli.version(VERSION);
 	cli.example("clv review.md");
 	cli.example("clv -R docs/");
+	cli.example("clv spec.md -g design");
 	cli.example("clv doc callout");
 	cli.example("clv status");
 	cli.example(`claude -p "review this PR" | clv --output out.html`);
@@ -160,19 +169,20 @@ export function parseCliArgs(argv: string[]): ParseOutcome {
 		kind: "run",
 		args: {
 			paths: [...args],
-			output,
-			// When --output is given we never auto-open (per SPEC §3 CLI options table).
-			// options.open is true unless --no-open.
-			open: options.open && !output,
-			title: typeof options.title === "string" ? options.title : "clv",
-			theme: parseTheme(options.theme ?? "auto"),
-			themeExplicit,
-			strict: Boolean(options.strict),
 			port: resolvePort(options.port),
 			// options.watch: true by default / for --watch, false for --no-watch.
 			watch: options.watch,
 			watchExplicit,
 			recursive: Boolean(options.recursive),
+			group: validateGroup(options.group),
+			theme: parseTheme(options.theme ?? "auto"),
+			themeExplicit,
+			output,
+			// When --output is given we never auto-open (per SPEC §3 CLI options table).
+			// options.open is true unless --no-open.
+			open: options.open && !output,
+			title: typeof options.title === "string" ? options.title : "clv",
+			strict: Boolean(options.strict),
 		},
 	};
 }
@@ -191,6 +201,23 @@ function parseTheme(theme: unknown): "auto" | "light" | "dark" {
 		throw new Error(`invalid --theme "${theme}" (expected auto | light | dark)`);
 	}
 	return theme;
+}
+
+// Validate and narrow a raw --group value. `undefined` (flag absent) is passed
+// through so the caller resolves the auto group. cac yields boolean `true` for a
+// valueless `-g`/`--group` (rejected here, mirroring validatePort). The value is
+// trimmed; an empty/whitespace-only value is rejected. No shell-injection
+// validation: the group never reaches a shell, it only labels the sidebar.
+function validateGroup(raw: unknown): string | undefined {
+	if (raw === undefined) return undefined;
+	if (typeof raw !== "string") {
+		throw new Error(`invalid --group "${raw}" (expected a name)`);
+	}
+	const trimmed = raw.trim();
+	if (!trimmed) {
+		throw new Error(`invalid --group "${raw}" (expected a non-empty name)`);
+	}
+	return trimmed;
 }
 
 // Parse a raw --port value into a positive integer. Throws on a bad value. The input
