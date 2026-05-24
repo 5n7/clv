@@ -32,7 +32,10 @@ async function waitForWithEventLog<T>(
 	try {
 		return await waitFor(predicate, timeoutMs);
 	} catch (e) {
-		console.error("events at failure:", events.map((ev) => `${ev.type}:${ev.path}`));
+		console.error(
+			"events at failure:",
+			events.map((ev) => `${ev.type}:${ev.path}`),
+		);
 		throw e;
 	}
 }
@@ -126,11 +129,7 @@ describe("createWatcher — directly watched file", () => {
 		const tmp1 = join(dir, "watched.md.tmp1");
 		await Bun.write(tmp1, "# first save");
 		fs.renameSync(tmp1, file);
-		await waitForWithEventLog(
-			() => events.find((e) => e.type === "change" && e.path === file),
-			events,
-			waitMs,
-		);
+		await waitForWithEventLog(() => events.find((e) => e.type === "change" && e.path === file), events, waitMs);
 
 		// A single atomic rename produces more than one change on the new code (the
 		// debounced `schedule` plus the rewatch's own `schedule` after re-attaching).
