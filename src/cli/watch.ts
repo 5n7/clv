@@ -1,5 +1,5 @@
 import { type FSWatcher, statSync, watch } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { isMarkdownPath } from "./session";
 
@@ -14,14 +14,17 @@ import { isMarkdownPath } from "./session";
 // Per-file `fs.watch` binds to the file's inode, so an editor that saves
 // atomically (write temp file + rename over the target — vim, Neovim, many
 // formatters, common on macOS) replaces the inode and the original handle goes
-// silent forever. We handle this the way k1LoW/mo does: when a file watch emits
-// a `rename` event we wait briefly, then `stat` the path. If the file still
-// exists there, the inode was swapped by an atomic save, so we close the stale
-// handle and re-attach a fresh `fs.watch` to the same path (binding to the new
-// inode), then emit a change. If the path is gone, we leave it to the debounced
-// `schedule` logic, which emits the `unlink`. On macOS FSEvents a plain write
-// can also surface as `rename`; that is harmless — the stat check is the gate
-// and re-attaching a still-live path just closes and reopens the handle.
+// silent forever. We handle this the way k1LoW/mo does: when a direct file
+// watch OR its parent-directory fallback watch emits a `rename` event for that
+// path, we wait briefly, then `stat` the path. If the file still exists there,
+// the inode was swapped by an atomic save, so we close the stale handle and
+// re-attach a fresh `fs.watch` to the same path (binding to the new inode), then
+// emit a change. If the path is gone, we leave it to the debounced `schedule`
+// logic, which emits the `unlink`. The parent-directory fallback is needed on
+// Linux because a file-level watch can miss the replacement event entirely. On
+// macOS FSEvents a plain write can also surface as `rename`; that is harmless —
+// the stat check is the gate and re-attaching a still-live path just closes and
+// reopens the handle.
 
 export type WatchEvent = {
 	type: "change" | "add" | "unlink";
@@ -64,6 +67,7 @@ export function createWatcher(
 	// File watchers keyed by absolute path so an individual file's handle can be
 	// replaced when an atomic save swaps the inode (see IMPLEMENTATION NOTE).
 	const fileWatchers = new Map<string, FSWatcher>();
+	const directFileParentWatchers = new Map<string, { files: Set<string>; watcher: FSWatcher }>();
 	const timers = new Map<string, ReturnType<typeof setTimeout>>();
 	// Per-path timers for the delayed rename→stat→re-attach routine. Kept separate
 	// from `timers` so a rename's rewatch debounce does not clobber the change
@@ -131,9 +135,33 @@ export function createWatcher(
 		);
 	};
 
+	const watchDirectFileParent = (abs: string): void => {
+		const absDir = dirname(abs);
+		const existing = directFileParentWatchers.get(absDir);
+		if (existing) {
+			existing.files.add(abs);
+			return;
+		}
+
+		const files = new Set([abs]);
+		try {
+			const watcher = watch(absDir, (eventType, filename) => {
+				if (!filename) return;
+				const changed = resolve(absDir, filename.toString());
+				if (!files.has(changed)) return;
+				schedule(changed);
+				if (eventType === "rename") scheduleRewatch(changed);
+			});
+			directFileParentWatchers.set(absDir, { files, watcher });
+		} catch {
+			// Directory vanished before we could watch it; ignore.
+		}
+	};
+
 	const watchFile = (file: string): void => {
 		const abs = resolve(file);
 		known.add(abs);
+		watchDirectFileParent(abs);
 		// Skip if already watched: repeated `clv <samefile>` POSTs would otherwise
 		// stack duplicate fs.watch handles on the long-lived daemon.
 		if (fileWatchers.has(abs)) return;
@@ -174,6 +202,8 @@ export function createWatcher(
 			rewatchTimers.clear();
 			for (const w of dirWatchers) w.close();
 			dirWatchers.length = 0;
+			for (const { watcher } of directFileParentWatchers.values()) watcher.close();
+			directFileParentWatchers.clear();
 			for (const w of fileWatchers.values()) w.close();
 			fileWatchers.clear();
 			watchedAbs.clear();

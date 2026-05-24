@@ -155,9 +155,11 @@ describe("createWatcher — directly watched file", () => {
 });
 
 describe("createWatcher — add() deduplication (no fs.watch handle leak)", () => {
-	// Count real fs.watch invocations: re-adding an already-watched path must
-	// attach no new handle. This directly targets the leak (per-path timer/handle
-	// stacking on the long-lived daemon) rather than relying on the debounce.
+	// Count real fs.watch invocations: a directly watched file attaches the file
+	// watch plus its parent-directory fallback, and re-adding the same path must
+	// attach no additional handles. This directly targets the leak (per-path
+	// timer/handle stacking on the long-lived daemon) rather than relying on the
+	// debounce.
 	test("re-adding an already-watched file attaches no new fs.watch handle", async () => {
 		dir = mkdtempSync(join(tmpdir(), "clv-watch-"));
 		const file = join(dir, "dup.md");
@@ -166,10 +168,10 @@ describe("createWatcher — add() deduplication (no fs.watch handle leak)", () =
 		const spy = spyOn(fs, "watch");
 		try {
 			watcher = createWatcher({ files: [file], dirs: [], recursive: false }, () => {});
-			expect(spy).toHaveBeenCalledTimes(1);
+			expect(spy).toHaveBeenCalledTimes(2);
 			watcher.add({ files: [file], dirs: [] });
 			watcher.add({ files: [file], dirs: [] });
-			expect(spy).toHaveBeenCalledTimes(1);
+			expect(spy).toHaveBeenCalledTimes(2);
 		} finally {
 			spy.mockRestore();
 		}
