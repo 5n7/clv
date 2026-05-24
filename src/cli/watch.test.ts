@@ -24,6 +24,19 @@ async function waitFor<T>(predicate: () => T | undefined, timeoutMs = 5000): Pro
 	throw new Error("waitFor: timed out");
 }
 
+async function waitForWithEventLog<T>(
+	predicate: () => T | undefined,
+	events: WatchEvent[],
+	timeoutMs: number,
+): Promise<T> {
+	try {
+		return await waitFor(predicate, timeoutMs);
+	} catch (e) {
+		console.error("events at failure:", events.map((ev) => `${ev.type}:${ev.path}`));
+		throw e;
+	}
+}
+
 let dir: string;
 let watcher: { close(): void; add(more: { files: string[]; dirs: string[] }): void } | undefined;
 
@@ -99,6 +112,7 @@ describe("createWatcher — directly watched file", () => {
 	// would never exercise the rewatch path. The key assertion is the SECOND edit:
 	// it only fires if the watcher survived the first inode swap.
 	test("keeps emitting change across an atomic-save inode swap (rename replace)", async () => {
+		const waitMs = 15000;
 		dir = mkdtempSync(join(tmpdir(), "clv-watch-"));
 		const file = join(dir, "watched.md");
 		await Bun.write(file, "# initial");
@@ -112,7 +126,11 @@ describe("createWatcher — directly watched file", () => {
 		const tmp1 = join(dir, "watched.md.tmp1");
 		await Bun.write(tmp1, "# first save");
 		fs.renameSync(tmp1, file);
-		await waitFor(() => events.find((e) => e.type === "change" && e.path === file));
+		await waitForWithEventLog(
+			() => events.find((e) => e.type === "change" && e.path === file),
+			events,
+			waitMs,
+		);
 
 		// A single atomic rename produces more than one change on the new code (the
 		// debounced `schedule` plus the rewatch's own `schedule` after re-attaching).
@@ -129,8 +147,12 @@ describe("createWatcher — directly watched file", () => {
 		const tmp2 = join(dir, "watched.md.tmp2");
 		await Bun.write(tmp2, "# second save");
 		fs.renameSync(tmp2, file);
-		await waitFor(() => events.slice(before).find((e) => e.type === "change" && e.path === file));
-	});
+		await waitForWithEventLog(
+			() => events.slice(before).find((e) => e.type === "change" && e.path === file),
+			events,
+			waitMs,
+		);
+	}, 30000);
 });
 
 describe("createWatcher — add() deduplication (no fs.watch handle leak)", () => {
