@@ -154,24 +154,26 @@ describe("createWatcher — directly watched file", () => {
 	}, 30000);
 });
 
-describe("createWatcher — add() deduplication (no fs.watch handle leak)", () => {
-	// Count real fs.watch invocations: a directly watched file attaches the file
-	// watch plus its parent-directory fallback, and re-adding the same path must
-	// attach no additional handles. This directly targets the leak (per-path
-	// timer/handle stacking on the long-lived daemon) rather than relying on the
-	// debounce.
-	test("re-adding an already-watched file attaches no new fs.watch handle", async () => {
+describe("createWatcher — add() deduplication (no handle/timer leak)", () => {
+	// Directly watched files are no longer backed by fs.watch handles; they are
+	// tracked by a single shared stat-poll setInterval and a per-file snapshot in
+	// directFileSnapshots. Count setInterval invocations: the first watched file
+	// starts exactly one shared poller, and re-adding the same path must reuse
+	// that snapshot/poller rather than stacking a second interval. This directly
+	// targets the leak (per-path timer stacking on the long-lived daemon) rather
+	// than relying on the debounce.
+	test("re-adding an already-watched file reuses the shared poller (no new interval)", async () => {
 		dir = mkdtempSync(join(tmpdir(), "clv-watch-"));
 		const file = join(dir, "dup.md");
 		await Bun.write(file, "# initial");
 
-		const spy = spyOn(fs, "watch");
+		const spy = spyOn(globalThis, "setInterval");
 		try {
 			watcher = createWatcher({ files: [file], dirs: [], recursive: false }, () => {});
-			expect(spy).toHaveBeenCalledTimes(2);
+			expect(spy).toHaveBeenCalledTimes(1);
 			watcher.add({ files: [file], dirs: [] });
 			watcher.add({ files: [file], dirs: [] });
-			expect(spy).toHaveBeenCalledTimes(2);
+			expect(spy).toHaveBeenCalledTimes(1);
 		} finally {
 			spy.mockRestore();
 		}

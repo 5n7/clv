@@ -1,5 +1,5 @@
 import { type FSWatcher, statSync, watch } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import { isMarkdownPath } from "./session";
 
@@ -11,21 +11,12 @@ import { isMarkdownPath } from "./session";
 // directory watching on Linux becomes a problem, THIS FILE is the single place
 // to swap the `node:fs` implementation for `chokidar`. Do not add chokidar yet.
 //
-// Per-file `fs.watch` binds to the file's inode, so an editor that saves
-// atomically (write temp file + rename over the target — vim, Neovim, many
-// formatters, common on macOS) replaces the inode and the original handle goes
-// silent forever. We handle this the way k1LoW/mo does: when a direct file
-// watch OR its parent-directory fallback watch emits a `rename` event for that
-// path, we wait briefly, then `stat` the path. If the file still exists there,
-// the inode was swapped by an atomic save, so we close the stale handle and
-// re-attach a fresh `fs.watch` to the same path (binding to the new inode), then
-// emit a change. If the path is gone, we leave it to the debounced `schedule`
-// logic, which emits the `unlink`. The parent-directory fallback helps on Linux
-// because a file-level watch can miss the replacement event entirely; direct
-// files also get a light stat-poll fallback so an eventless inode swap is still
-// detected. On macOS FSEvents a plain write can also surface as `rename`; that
-// is harmless — the stat check is the gate and re-attaching a still-live path
-// just closes and reopens the handle.
+// Directories are watched with `fs.watch` (above). Directly-watched FILES are
+// instead tracked by a stat poll (an ino/mtime/size/exists snapshot), not
+// `fs.watch`: an editor atomic save (write temp file + rename over the target —
+// vim, Neovim, many formatters) swaps the file's inode, and `fs.watch` can miss
+// the replacement entirely — on Bun/Linux it emits no event at all. Polling the
+// stat snapshot is the only reliable cross-platform signal for that case.
 
 export type WatchEvent = {
 	type: "change" | "add" | "unlink";
@@ -37,9 +28,6 @@ export type WatchEvent = {
 // re-stat'ing at that point so the final event reflects the post-change state.
 const DEBOUNCE_MS = 80;
 
-// Delay (ms) after a `rename` event before re-stat'ing the path to decide
-// whether to re-attach a fresh watch handle (atomic-save inode swap).
-const REWATCH_MS = 100;
 const DIRECT_FILE_POLL_MS = 250;
 
 type FileSnapshot = {
@@ -84,24 +72,16 @@ export function createWatcher(
 	// directory events (a path we've never seen before that now exists is an add).
 	const known = new Set<string>();
 	// Absolute paths of watched DIRECTORIES for which a handle is already
-	// installed. File dedup is handled by `fileWatchers.has(abs)` instead; this
-	// set tracks directories so repeated add() of the same dir on the long-lived
-	// daemon does not stack duplicate handles.
+	// installed. File dedup is handled by `directFileSnapshots.has(abs)` instead;
+	// this set tracks directories so repeated add() of the same dir on the
+	// long-lived daemon does not stack duplicate handles.
 	const watchedAbs = new Set<string>();
 	// Directory watchers: these never need rewatch logic, so they stay in a flat
 	// array keyed only by `watchedAbs` for dedup.
 	const dirWatchers: FSWatcher[] = [];
-	// File watchers keyed by absolute path so an individual file's handle can be
-	// replaced when an atomic save swaps the inode (see IMPLEMENTATION NOTE).
-	const fileWatchers = new Map<string, FSWatcher>();
-	const directFileParentWatchers = new Map<string, { files: Set<string>; watcher: FSWatcher }>();
 	const directFileSnapshots = new Map<string, FileSnapshot>();
 	let directFilePoller: ReturnType<typeof setInterval> | undefined;
 	const timers = new Map<string, ReturnType<typeof setTimeout>>();
-	// Per-path timers for the delayed rename→stat→re-attach routine. Kept separate
-	// from `timers` so a rename's rewatch debounce does not clobber the change
-	// debounce (and vice versa).
-	const rewatchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	const schedule = (path: string): void => {
 		const existing = timers.get(path);
@@ -126,75 +106,11 @@ export function createWatcher(
 		);
 	};
 
-	// Low-level attach shared by initial watch and re-attach. Sets the map entry
-	// only on success, so a throw leaves no stale entry.
-	const attachFileWatch = (abs: string): void => {
-		try {
-			fileWatchers.set(
-				abs,
-				watch(abs, (eventType) => {
-					schedule(abs);
-					if (eventType === "rename") scheduleRewatch(abs);
-				}),
-			);
-		} catch {
-			// File vanished before we could watch it; ignore.
-		}
-	};
-
-	// Re-stat after a `rename` and re-attach a fresh handle if the file still
-	// exists at the path (its inode was swapped by an atomic save). Debounced
-	// per-path on its own timer map.
-	const scheduleRewatch = (abs: string): void => {
-		const existing = rewatchTimers.get(abs);
-		if (existing) clearTimeout(existing);
-		rewatchTimers.set(
-			abs,
-			setTimeout(() => {
-				rewatchTimers.delete(abs);
-				// The daemon may have dropped this file in the meantime.
-				if (!fileWatchers.has(abs)) return;
-				// Genuinely gone → leave the unlink to `schedule`'s debounce.
-				if (!exists(abs)) return;
-				// Inode swapped: close the stale handle and bind a fresh one.
-				fileWatchers.get(abs)?.close();
-				fileWatchers.delete(abs);
-				attachFileWatch(abs);
-				// Emit the post-rename content as a change.
-				schedule(abs);
-			}, REWATCH_MS),
-		);
-	};
-
-	const watchDirectFileParent = (abs: string): void => {
-		const absDir = dirname(abs);
-		const existing = directFileParentWatchers.get(absDir);
-		if (existing) {
-			existing.files.add(abs);
-			return;
-		}
-
-		const files = new Set([abs]);
-		try {
-			const watcher = watch(absDir, (eventType, filename) => {
-				if (!filename) return;
-				const changed = resolve(absDir, filename.toString());
-				if (!files.has(changed)) return;
-				schedule(changed);
-				if (eventType === "rename") scheduleRewatch(changed);
-			});
-			directFileParentWatchers.set(absDir, { files, watcher });
-		} catch {
-			// Directory vanished before we could watch it; ignore.
-		}
-	};
-
 	const pollDirectFiles = (): void => {
 		for (const [abs, previous] of directFileSnapshots) {
 			const next = snapshot(abs);
 			if (sameSnapshot(previous, next)) continue;
 			directFileSnapshots.set(abs, next);
-			if (previous.exists && next.exists) scheduleRewatch(abs);
 			schedule(abs);
 		}
 	};
@@ -207,13 +123,10 @@ export function createWatcher(
 	const watchFile = (file: string): void => {
 		const abs = resolve(file);
 		known.add(abs);
+		// Dedup: a file already being polled needs no second snapshot/poller.
+		if (directFileSnapshots.has(abs)) return;
 		directFileSnapshots.set(abs, snapshot(abs));
 		startDirectFilePoller();
-		watchDirectFileParent(abs);
-		// Skip if already watched: repeated `clv <samefile>` POSTs would otherwise
-		// stack duplicate fs.watch handles on the long-lived daemon.
-		if (fileWatchers.has(abs)) return;
-		attachFileWatch(abs);
 	};
 
 	const watchDir = (dir: string): void => {
@@ -246,17 +159,11 @@ export function createWatcher(
 		close() {
 			for (const t of timers.values()) clearTimeout(t);
 			timers.clear();
-			for (const t of rewatchTimers.values()) clearTimeout(t);
-			rewatchTimers.clear();
 			if (directFilePoller) clearInterval(directFilePoller);
 			directFilePoller = undefined;
 			directFileSnapshots.clear();
 			for (const w of dirWatchers) w.close();
 			dirWatchers.length = 0;
-			for (const { watcher } of directFileParentWatchers.values()) watcher.close();
-			directFileParentWatchers.clear();
-			for (const w of fileWatchers.values()) w.close();
-			fileWatchers.clear();
 			watchedAbs.clear();
 		},
 	};
