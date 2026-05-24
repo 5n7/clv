@@ -2,6 +2,12 @@
 	"name": "@5n7/clv",
 	"version": "0.2.0",
 	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/5n7/clv.git"
+	},
+	"homepage": "https://github.com/5n7/clv#readme",
+	"bugs": "https://github.com/5n7/clv/issues",
 	"bin": {
 		"clv": "dist/cli.js"
 	},
