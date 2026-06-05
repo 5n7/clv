@@ -9,7 +9,7 @@ import { parseDocument } from "./parse";
 // inlining in doc.ts. Bun's CWD for tests is the project root, so the relative
 // paths resolve against the worktree root.
 const styleDoc = await Bun.file("docs/output-style-clv.md").text();
-const showcaseOnDisk = await Bun.file("examples/showcase.md").text();
+const showcaseOnDisk = await Bun.file("examples/showcase.clv.md").text();
 
 // All valid block names, in their canonical (schema) order.
 const blockNames = Object.keys(blockDataSchemas);
@@ -125,7 +125,7 @@ describe("renderDoc", () => {
 });
 
 describe("showcase document (no-arg correctness)", () => {
-	// `clv doc` prints examples/showcase.md verbatim. That document must itself
+	// `clv doc` prints examples/showcase.clv.md verbatim. That document must itself
 	// parse without any fallback so the showcase never demonstrates a broken block.
 	const { doc, hadError } = parseDocument(showcaseOnDisk, { title: "x", theme: "auto" });
 

@@ -16,7 +16,7 @@ import { isPidAlive, readState } from "./state";
 // AND the detached daemon it spawns.
 
 const CLI = resolve(import.meta.dir, "index.ts");
-const EXAMPLE = resolve(import.meta.dir, "..", "..", "examples", "review.md");
+const EXAMPLE = resolve(import.meta.dir, "..", "..", "examples", "review.clv.md");
 
 let dir: string;
 let port: number;

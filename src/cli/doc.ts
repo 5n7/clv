@@ -4,7 +4,7 @@ import { blockDataSchemas } from "@shared/schema";
 // time (same `type: "text"` pattern as inject.ts's template import), so the CLI
 // has no runtime file dependency on examples/ or docs/.
 import outputStyleDoc from "../../docs/output-style-clv.md" with { type: "text" };
-import showcaseDoc from "../../examples/showcase.md" with { type: "text" };
+import showcaseDoc from "../../examples/showcase.clv.md" with { type: "text" };
 
 // The canonical list of valid block names — the keys of `blockDataSchemas`. Used
 // for both validation and the unknown-block error, so it can never drift.
