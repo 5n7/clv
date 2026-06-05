@@ -1,4 +1,5 @@
 import type { Document } from "@shared/types";
+import "katex/dist/katex.min.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 

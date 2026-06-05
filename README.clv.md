@@ -205,7 +205,7 @@ shows each one off.
   "id": "findings-meta",
   "items": [
     { "severity": "info", "title": "This file is the demo", "body": "Rather than describe the blocks, `README.clv.md` *is* a worked example of every one of them. The plain [`README.md`](README.md) has the reference prose." },
-    { "severity": "tip", "title": "Unknown blocks fail gracefully", "blockId": "code-anatomy", "body": "An unrecognized `clv:<type>` renders as a clearly-marked raw-JSON fallback instead of breaking the whole page. There is a deliberate one at the bottom of [`examples/review.md`](examples/review.md)." },
+    { "severity": "tip", "title": "Unknown blocks fail gracefully", "blockId": "code-anatomy", "body": "An unrecognized `clv:<type>` renders as a clearly-marked raw-JSON fallback instead of breaking the whole page. There is a deliberate one at the bottom of [`examples/review.clv.md`](examples/review.clv.md)." },
     { "severity": "warning", "title": "JSON only — no comments, no trailing commas", "body": "Block bodies must parse with `JSON.parse`. Use `\\n` for newlines inside `source`. Click into the anatomy block below to see the shape." }
   ]
 }
@@ -330,7 +330,7 @@ ships `dist/` only.
     { "path": "dist/cli.js", "status": "added", "note": "the clv command; template text-imported, no runtime file deps" },
     { "path": "dist/template.html", "status": "added", "note": "single-file React viewer (Vite + vite-plugin-singlefile)" },
     { "path": "docs/output-style-clv.md", "status": "modified", "note": "copy into CLAUDE.md so Claude emits valid blocks", "href": "./docs/output-style-clv.md" },
-    { "path": "examples/review.md", "status": "modified", "note": "all 14 types + a deliberate fallback", "href": "./examples/review.md" }
+    { "path": "examples/review.clv.md", "status": "modified", "note": "all 14 types + a deliberate fallback", "href": "./examples/review.clv.md" }
   ]
 }
 ```

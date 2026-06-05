@@ -1,13 +1,18 @@
 import bash from "@shikijs/langs/bash";
+import css from "@shikijs/langs/css";
+import diff from "@shikijs/langs/diff";
 import go from "@shikijs/langs/go";
+import html from "@shikijs/langs/html";
 import javascript from "@shikijs/langs/javascript";
 import json from "@shikijs/langs/json";
 import jsx from "@shikijs/langs/jsx";
 import markdown from "@shikijs/langs/markdown";
 import python from "@shikijs/langs/python";
+import rust from "@shikijs/langs/rust";
 import sql from "@shikijs/langs/sql";
 import tsx from "@shikijs/langs/tsx";
 import typescript from "@shikijs/langs/typescript";
+import yaml from "@shikijs/langs/yaml";
 import { createHighlighterCoreSync, createCssVariablesTheme, type HighlighterCore } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 
@@ -31,7 +36,7 @@ const cssTheme = createCssVariablesTheme({
 export const highlighter: HighlighterCore = createHighlighterCoreSync({
 	engine: createJavaScriptRegexEngine(),
 	themes: [cssTheme],
-	langs: [go, typescript, tsx, javascript, jsx, sql, json, bash, markdown, python],
+	langs: [go, typescript, tsx, javascript, jsx, sql, json, bash, markdown, python, yaml, html, css, diff, rust],
 });
 
 // Languages the highlighter actually knows (incl. aliases). Anything else falls
@@ -44,9 +49,11 @@ const LANG_ALIAS: Record<string, string> = {
 	js: "javascript",
 	md: "markdown",
 	py: "python",
+	rs: "rust",
 	sh: "bash",
 	shell: "bash",
 	ts: "typescript",
+	yml: "yaml",
 };
 
 export type CodeToken = { content: string; color?: string; fontStyle?: number };

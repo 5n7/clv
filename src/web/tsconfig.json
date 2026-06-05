@@ -8,5 +8,5 @@
 	// Web test files are pure (no DOM) and run by `bun test`, which provides the
 	// `bun:test` module at runtime. This config sets `types: []` (DOM-only app
 	// code), so exclude tests here to avoid a phantom "cannot find bun:test".
-	"exclude": ["../../dist", "../../node_modules", "src/**/*.test.ts"]
+	"exclude": ["../../dist", "../../node_modules", "src/**/*.test.ts", "src/**/*.test.tsx"]
 }

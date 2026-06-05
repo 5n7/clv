@@ -125,7 +125,7 @@ Header attributes (`title="…"` etc.) are merged into the payload; on conflict 
 | `clv:timeline`  | Numbered vertical rail of phases/events, each with a severity.                                           |
 | `clv:tree`      | Changed-file tree with per-file status badges and optional anchors.                                      |
 
-See [`examples/review.md`](https://github.com/5n7/clv/blob/main/examples/review.md) for a document that exercises all 14 types plus a deliberate unknown-block fallback. Copy [`docs/output-style-clv.md`](https://github.com/5n7/clv/blob/main/docs/output-style-clv.md) into `CLAUDE.md` or `~/.claude/output-styles/` so Claude emits valid blocks; that file has the full schema for each type.
+See [`examples/review.clv.md`](https://github.com/5n7/clv/blob/main/examples/review.clv.md) for a document that exercises all 14 types plus a deliberate unknown-block fallback. Copy [`docs/output-style-clv.md`](https://github.com/5n7/clv/blob/main/docs/output-style-clv.md) into `CLAUDE.md` or `~/.claude/output-styles/` so Claude emits valid blocks; that file has the full schema for each type.
 
 ## Self-contained output
 
