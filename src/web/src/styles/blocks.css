@@ -625,6 +625,44 @@
 	display: block;
 	white-space: pre;
 }
+
+/* ---------- copy-to-clipboard button ---------- */
+button.copybtn {
+	border: 1px solid var(--line);
+	background: var(--bg-card);
+	color: var(--ink-3);
+	border-radius: var(--radius-sm);
+	padding: 4px;
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+button.copybtn:hover {
+	color: var(--ink);
+	border-color: var(--ink-4);
+}
+button.copybtn.copied {
+	color: var(--ok);
+	border-color: color-mix(in oklab, var(--ok), transparent 50%);
+}
+
+/* Fenced markdown code: position the button top-right of the relative <pre>,
+   revealed on hover/focus so it stays out of the way while reading. */
+.md pre.code-fence {
+	position: relative;
+}
+.md pre.code-fence .fence-copy {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	opacity: 0;
+	transition: opacity 0.12s ease;
+}
+.md pre.code-fence:hover .fence-copy,
+.md pre.code-fence:focus-within .fence-copy {
+	opacity: 1;
+}
 .md a {
 	color: var(--accent);
 	text-decoration: none;
@@ -891,6 +929,11 @@
 }
 .codeblk .filebar .annn {
 	color: var(--ink-3);
+}
+.codeblk .filebar .filebar-copy {
+	background: var(--bg-card);
+	border-color: var(--line);
+	padding: 3px;
 }
 .codeblk pre {
 	margin: 0;

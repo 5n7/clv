@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from "react";
+import { Children, Fragment, isValidElement, type ReactNode, useMemo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -7,6 +7,7 @@ import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 
+import { CopyButton } from "../components/CopyButton";
 import { useAssetRewrite } from "./assetUrl";
 import { TokenLine } from "./CodeTokens";
 import { tokenizeLines } from "./shiki";
@@ -27,27 +28,52 @@ const schema = {
 	},
 };
 
-// One shiki-highlighted fenced block. Memoized on (src, lang) so unrelated
-// re-renders of the enclosing Markdown don't re-tokenize, matching the block
-// renderers (Code.tsx, Findings.tsx).
+// One shiki-highlighted fenced block, rendered as the full `<pre><code>` pair
+// (not just `<code>`) so we can host the hover-revealed CopyButton inside the
+// positioned `<pre>` — the button sits outside `<code>` so it never lands in
+// the copied text. The `.code-fence` class is the `position: relative` anchor.
+// Memoized on (src, lang) so unrelated re-renders of the enclosing Markdown
+// don't re-tokenize, matching the block renderers (Code.tsx, Findings.tsx).
 function HighlightedCode({ className, lang, src }: { className?: string; lang: string | undefined; src: string }) {
 	const lines = useMemo(() => tokenizeLines(src, lang), [src, lang]);
 	return (
-		<code className={className}>
-			{lines.map((tokens, i) => (
-				<Fragment key={i}>
-					<TokenLine tokens={tokens} />
-					{i < lines.length - 1 ? "\n" : null}
-				</Fragment>
-			))}
-		</code>
+		<pre className="code-fence">
+			<CopyButton text={src} className="fence-copy" />
+			<code className={className}>
+				{lines.map((tokens, i) => (
+					<Fragment key={i}>
+						<TokenLine tokens={tokens} />
+						{i < lines.length - 1 ? "\n" : null}
+					</Fragment>
+				))}
+			</code>
+		</pre>
 	);
 }
 
-// Syntax-highlight FENCED CODE BLOCKS with the shared shiki helper. Only the
-// `code` element is overridden — react-markdown still wraps block code in its
-// default `<pre>`, so overriding `pre` too would produce a double `<pre>`.
+// Detect a fenced code block that our `code` override replaced with a
+// `HighlightedCode` element (which emits its own <pre class="code-fence">). The
+// child here is that element, carrying the forwarded `className="language-*"`.
+// Used by the `pre` override to avoid wrapping it in a second react-markdown
+// `<pre>`.
+function isFencedChild(children: ReactNode): boolean {
+	const first = Children.toArray(children)[0];
+	if (!isValidElement(first)) return false;
+	const cls = (first.props as { className?: string }).className;
+	return typeof cls === "string" && cls.includes("language-");
+}
+
+// Syntax-highlight FENCED CODE BLOCKS with the shared shiki helper. The `code`
+// override already emits the full `<pre class="code-fence"><code>…` pair for
+// fenced blocks (so it can host the CopyButton), so the `pre` override must
+// pass that through untouched — otherwise react-markdown's default `<pre>` would
+// double-wrap it. A plain raw `<pre>` (from rehype-raw) has no `language-*`
+// child, so it keeps the standard `<pre>` rendering and stays intact.
 const components: Components = {
+	pre({ children, node: _node, ...rest }) {
+		if (isFencedChild(children)) return <>{children}</>;
+		return <pre {...rest}>{children}</pre>;
+	},
 	code({ className, children, node: _node, ...rest }) {
 		const match = /language-([\w-]+)/.exec(className || "");
 		if (match) {

@@ -1,5 +1,6 @@
 import type { Severity } from "@shared/types";
 import {
+	Check,
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
@@ -21,6 +22,7 @@ import {
 
 // Maps the prototype's icon names (primitives.jsx) onto lucide-react icons.
 const ICONS: Record<string, LucideIcon> = {
+	check: Check,
 	chevDown: ChevronDown,
 	chevLeft: ChevronLeft,
 	chevRight: ChevronRight,

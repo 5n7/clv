@@ -2,6 +2,7 @@ import type { Code as CodeData } from "@shared/types";
 import { Fragment, useMemo } from "react";
 
 import { BlockFrame } from "../components/BlockFrame";
+import { CopyButton } from "../components/CopyButton";
 import { Icon, SEV_LABEL } from "../components/Icon";
 import { TokenLine } from "../lib/CodeTokens";
 import { Markdown } from "../lib/markdown";
@@ -39,6 +40,7 @@ export function Code({ data, id }: CodeProps) {
 					<span className="annn">
 						{annCount} annotation{annCount === 1 ? "" : "s"}
 					</span>
+					<CopyButton text={data.source || ""} className="filebar-copy" />
 				</div>
 				<pre>
 					{lines.map((tokens, idx) => {
