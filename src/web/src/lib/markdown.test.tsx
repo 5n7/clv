@@ -26,6 +26,15 @@ describe("Markdown shiki highlighting", () => {
 		const html = render("```nonexistentlang\nsome text\n```");
 		expect(html).toContain("some text");
 	});
+
+	test("wraps a fenced block in a single code-fence <pre> with a copy button", () => {
+		const html = render("```rust\nfn main() {}\n```");
+		expect(html).toContain('class="code-fence"');
+		// The copy button lives inside the <pre> but outside <code>.
+		expect(html).toContain("copybtn");
+		// No double <pre>: only one opening <pre> tag total.
+		expect(html.match(/<pre/g)?.length).toBe(1);
+	});
 });
 
 describe("Markdown math", () => {
