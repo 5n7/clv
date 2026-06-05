@@ -566,6 +566,13 @@
 .md p {
 	margin: 0 0 14px;
 }
+.md h1 {
+	font-family: var(--sans);
+	font-size: 26px;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+	margin: 28px 0 12px;
+}
 .md h2 {
 	font-family: var(--sans);
 	font-size: 22px;
@@ -578,6 +585,17 @@
 	font-weight: 600;
 	margin: 22px 0 8px;
 }
+.md h4 {
+	font-size: 14px;
+	font-weight: 600;
+	margin: 20px 0 6px;
+}
+.md h5, .md h6 {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--ink-3);
+	margin: 18px 0 6px;
+}
 .md code:not(pre code) {
 	font-family: var(--mono);
 	font-size: 0.86em;
@@ -587,23 +605,117 @@
 	border: 1px solid var(--line-soft);
 	color: var(--ink);
 }
+.md pre {
+	background: var(--bg-sunk);
+	border: 1px solid var(--line-soft);
+	border-radius: 8px;
+	padding: 12px 14px;
+	overflow-x: auto;
+	margin: 0 0 14px;
+	font-family: var(--mono);
+	font-size: 12.5px;
+	line-height: 1.6;
+}
+.md pre code {
+	background: none;
+	border: 0;
+	padding: 0;
+	font-size: inherit;
+	color: inherit;
+	display: block;
+	white-space: pre;
+}
 .md a {
 	color: var(--accent);
 	text-decoration: none;
 	border-bottom: 1px solid color-mix(in oklab, var(--accent), transparent 70%);
 }
-.md ul {
+.md ul, .md ol {
 	margin: 0 0 14px;
 	padding-left: 22px;
 }
 .md li {
 	margin: 3px 0;
 }
+.md li > ul, .md li > ol {
+	margin: 4px 0;
+}
+.md li.task-list-item {
+	list-style: none;
+}
+.md li.task-list-item input[type="checkbox"] {
+	margin: 0 8px 0 0;
+	vertical-align: middle;
+	accent-color: var(--accent);
+}
 .md strong {
 	font-weight: 600;
 }
 .md em {
 	font-style: italic;
+}
+.md del {
+	text-decoration: line-through;
+	color: var(--ink-3);
+}
+.md blockquote {
+	margin: 0 0 14px;
+	padding: 2px 16px;
+	border-left: 3px solid var(--line);
+	color: var(--ink-3);
+}
+.md blockquote p:last-child {
+	margin-bottom: 0;
+}
+.md table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 13px;
+	margin: 0 0 16px;
+	display: block;
+	overflow-x: auto;
+}
+.md th, .md td {
+	padding: 8px 14px;
+	border: 1px solid var(--line-soft);
+	text-align: left;
+}
+.md thead th {
+	background: var(--bg-elev);
+	font-weight: 500;
+	font-size: 11px;
+	color: var(--ink-3);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+.md tbody tr:hover {
+	background: var(--bg-sunk);
+}
+.md hr {
+	border: 0;
+	border-top: 1px solid var(--line);
+	margin: 24px 0;
+}
+.md img {
+	max-width: 100%;
+	height: auto;
+	border-radius: 6px;
+	border: 1px solid var(--line-soft);
+}
+.md .footnotes {
+	margin-top: 28px;
+	padding-top: 14px;
+	border-top: 1px solid var(--line);
+	font-size: 13px;
+	color: var(--ink-3);
+}
+.md sup a {
+	font-size: 0.85em;
+}
+.md .katex-display {
+	overflow-x: auto;
+	overflow-y: hidden;
+	padding: 4px 0;
 }
 
 /* ---------- block frame ---------- */
